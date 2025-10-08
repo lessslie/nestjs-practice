@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google, gmail_v1 } from 'googleapis';
-import { DatabaseService, EmailMetadataDB } from '../database/database.service';
+import { EmailSyncRepository, EmailMetadataDB } from '../database/repositories/email-sync.repository';
 import { 
   GmailMessage, 
   GmailHeader, 
@@ -33,9 +33,9 @@ export interface SyncStats {
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
 
-  constructor(
+constructor(
     private readonly configService: ConfigService,
-    private readonly databaseService: DatabaseService
+    private readonly emailSyncRepository: EmailSyncRepository
   ) {}
 
   /**
@@ -124,8 +124,9 @@ export class SyncService {
 
       this.logger.log(`✅ Procesados ${emailsMetadata.length} emails, guardando en BD...`);
 
-      // 5️⃣ Guardar todo en base de datos (UPSERT masivo)
-      const syncResult = await this.databaseService.syncEmailsMetadata(emailsMetadata);
+      
+      // 5️⃣ Guardar en base de datos usando repository
+      const syncResult = await this.emailSyncRepository.syncMany(emailsMetadata);
 
       const tiempoTotal = Date.now() - startTime;
       const stats: SyncStats = {
@@ -319,8 +320,8 @@ private async getGmailMessagesList(
     try {
       this.logger.log(`🔄 ⚡ INICIANDO SYNC INCREMENTAL para cuenta ${cuentaGmailId}`);
 
-      // Obtener último email sincronizado para saber desde cuándo sincronizar
-      const lastSyncedEmail = await this.databaseService.getLastSyncedEmail(cuentaGmailId);
+  // Obtener último email sincronizado para saber desde cuándo sincronizar
+      const lastSyncedEmail = await this.emailSyncRepository.findLastSynced(cuentaGmailId);
       
       const options: SyncOptions = {
         maxEmails,
@@ -352,15 +353,18 @@ private async getGmailMessagesList(
     stats_detalladas: any;
   }> {
     try {
-      const [lastSync, statsDetalladas] = await Promise.all([
-        this.databaseService.getLastSyncedEmail(cuentaGmailId),
-        this.databaseService.getEmailStatsFromDB(cuentaGmailId)
+    const [lastSync, totalEmails] = await Promise.all([
+        this.emailSyncRepository.findLastSynced(cuentaGmailId),
+        this.emailSyncRepository.countByAccount(cuentaGmailId)
       ]);
 
-      return {
-        total_emails_bd: statsDetalladas.total_emails,
-        ultimo_sync: lastSync?.fecha_sincronizado,
-        stats_detalladas: statsDetalladas
+    return {
+        total_emails_bd: totalEmails,
+        ultimo_sync: lastSync?.fecha_sincronizado || undefined,
+        stats_detalladas: {
+          total_emails: totalEmails,
+          cuenta_gmail_id: cuentaGmailId
+        }
       };
 
     } catch (error) {

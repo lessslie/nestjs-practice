@@ -4,9 +4,10 @@ import { EmailsService } from './emails.service';
 import { ConfigModule } from '@nestjs/config';
 import { SyncService } from './sync.service';
 import { CronModule } from 'src/cron/cron.module';
+import { DatabaseModule } from 'src/database/database.module';
 
 @Module({
-  imports: [ConfigModule,
+  imports: [ConfigModule,DatabaseModule,
     forwardRef(() => CronModule)
   ],
   controllers: [EmailsController],
@@ -14,3 +15,4 @@ import { CronModule } from 'src/cron/cron.module';
   exports: [EmailsService, SyncService],
 })
 export class EmailsModule {}
+

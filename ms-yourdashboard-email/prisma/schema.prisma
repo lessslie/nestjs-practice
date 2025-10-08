@@ -1,11 +1,13 @@
+// ms-yourdashboard-email/prisma/schema.prisma
+
 generator client {
-  provider = "prisma-client-js"    // Genera código TypeScript/JavaScript
-  output   = "../generated/prisma" // Guarda el código aquí
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
 }
 
 datasource db {
-  provider = "postgresql"           // Tipo de base de datos
-  url      = env("DATABASE_URL")    // Lee la URL desde variables de entorno
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ==========================================
@@ -55,7 +57,10 @@ model cuentas_gmail_asociadas {
   emails_completos     emails_completos[]
 
   @@unique([usuario_principal_id, email_gmail], map: "cuentas_gmail_asociadas_usuario_principal_id_email_gmail_key")
+  @@index([email_gmail], map: "idx_cuentas_gmail_email")
+  @@index([esta_activa], map: "idx_cuentas_gmail_activa")
 }
+
 // ==========================================
 // MODELO 3: EMAILS SINCRONIZADOS (METADATA)
 // ==========================================
@@ -63,52 +68,51 @@ model emails_sincronizados {
   id                   String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   cuenta_gmail_id      String                   @db.Uuid
   gmail_message_id     String                   @db.VarChar(255)
-  asunto               String?                  @db.Text
-  remitente_email      String?                  @db.Text
-  remitente_nombre     String?                  @db.Text
-  destinatario_email   String?                  @db.Text
+  asunto               String?                  
+  remitente_email      String?                  
+  remitente_nombre     String?                  
+  destinatario_email   String?                  
   fecha_recibido       DateTime?                @db.Timestamp(6)
   esta_leido           Boolean?                 @default(false)
   tiene_adjuntos       Boolean?                 @default(false)
-  etiquetas_gmail      String[]                 // Array de strings
+  etiquetas_gmail      String[]
   tamano_bytes         Int?
   fecha_sincronizado   DateTime?                @default(now()) @db.Timestamp(6)
   replied_at           DateTime?                @db.Timestamp(6)
   days_without_reply   Int?                     @default(0)
-  traffic_light_status String?                  @default("green") @db.VarChar(10)
+  traffic_light_status String?                  @default("GREEN") @db.VarChar(20)
 
   // Relaciones
-  cuentas_gmail_asociadas cuentas_gmail_asociadas @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade)
+  cuentas_gmail_asociadas cuentas_gmail_asociadas @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   emails_completos        emails_completos[]
 
-  @@unique([cuenta_gmail_id, gmail_message_id], map: "emails_sincronizados_cuenta_gmail_message_unique")
-  @@index([fecha_recibido(sort: Desc)], map: "idx_emails_fecha_recibido")
+  @@unique([cuenta_gmail_id, gmail_message_id], map: "emails_sincronizados_cuenta_gmail_id_gmail_message_id_key")
   @@index([gmail_message_id], map: "idx_emails_gmail_message_id")
-  @@index([esta_leido], map: "idx_emails_esta_leido")
-  @@index([remitente_email], map: "idx_emails_remitente")
-  @@index([traffic_light_status, days_without_reply], map: "idx_emails_traffic_light")
+  @@index([fecha_recibido], map: "idx_emails_fecha_recibido")
+  @@index([traffic_light_status], map: "idx_emails_traffic_light")
 }
+
 // ==========================================
 // MODELO 4: EMAILS COMPLETOS (CONTENIDO)
 // ==========================================
 model emails_completos {
-  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email_sincronizado_id  String?                  @db.Uuid
-  cuenta_gmail_id        String?                  @db.Uuid
-  usuario_principal_id   String?                  @db.Uuid
-  gmail_message_id       String                   @db.VarChar(255)
-  cuerpo_texto           String?                  @db.Text
-  cuerpo_html            String?                  @db.Text
-  headers_completos      Json?
-  adjuntos               Json?
-  thread_id              String?                  @db.VarChar(255)
-  labels_completos       Json?
-  fecha_guardado         DateTime?                @default(now()) @db.Timestamp(6)
+  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cuerpo_texto            String?
+  cuerpo_html             String?
+  fecha_guardado          DateTime?                @default(now()) @db.Timestamp(6)
+  gmail_message_id        String                   @db.VarChar(255)
+  headers_completos       Json?
+  adjuntos                Json?
+  thread_id               String?                  @db.VarChar(255)
+  labels_completos        Json?
+  email_sincronizado_id   String?                  @db.Uuid
+  cuenta_gmail_id         String?                  @db.Uuid
+  usuario_principal_id    String?                  @db.Uuid
 
   // Relaciones
-  emails_sincronizados     emails_sincronizados?     @relation(fields: [email_sincronizado_id], references: [id], onDelete: Cascade)
-  cuentas_gmail_asociadas  cuentas_gmail_asociadas?  @relation(fields: [cuenta_gmail_id], references: [id])
-  usuarios_principales     usuarios_principales?     @relation(fields: [usuario_principal_id], references: [id])
+  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  usuarios_principales    usuarios_principales?    @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  emails_sincronizados    emails_sincronizados?    @relation(fields: [email_sincronizado_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([gmail_message_id], map: "idx_emails_completos_gmail_id")
 }

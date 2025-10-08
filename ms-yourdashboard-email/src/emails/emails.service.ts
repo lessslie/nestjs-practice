@@ -45,17 +45,24 @@ import {
   SendEmailQuotaCheck, 
   SendEmailResponse 
 } from './interfaces/email.interfaces-send';
+import { EmailMetadataRepository } from 'src/database/repositories/email-metadata.repository';
+import { EmailCompleteRepository } from 'src/database/repositories/email-complete.repository';
+import { GmailAccountRepository } from 'src/database/repositories/gmail-account.repository';
 
 @Injectable()
 export class EmailsService {
   private USE_DATABASE: boolean; // 🎮 Switch mágico desde variable de entorno(si no la encuentra usara DB)
   private readonly logger = new Logger(EmailsService.name);
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly databaseService: DatabaseService,
-    private readonly syncService: SyncService,
-  ) {
+constructor(
+  private readonly configService: ConfigService,
+  private readonly databaseService: DatabaseService,  // ⚠️ Mantener TEMPORALMENTE
+  private readonly syncService: SyncService,
+  // ✅ NUEVOS REPOSITORIES
+  private readonly emailMetadataRepo: EmailMetadataRepository,
+  private readonly emailCompleteRepo: EmailCompleteRepository,
+  private readonly gmailAccountRepo: GmailAccountRepository,
+) {
     // Debug para ver qué lee
     const modeFromEnv = this.configService.get<string>('USE_DATABASE_MODE');
     console.log('🔍 USE_DATABASE_MODE desde .env:', modeFromEnv);
@@ -137,11 +144,7 @@ export class EmailsService {
         this.logger.log(`💾 MODO BD ACTIVO - Consultando base de datos local`);
 
         // Intentar obtener desde BD
-        const dbResult = await this.databaseService.getEmailsPaginated(
-          cuentaGmailId,
-          page,
-          limit,
-        );
+        const dbResult =await this.emailMetadataRepo.findByAccountPaginated(cuentaGmailId, page, limit, false)
 
         if (dbResult.total > 0) {
           this.logger.log(
@@ -368,12 +371,7 @@ export class EmailsService {
           busqueda_texto: searchTerm.trim(),
         };
 
-        const searchResult = await this.databaseService.searchEmailsInDB(
-          cuentaGmailId,
-          filters,
-          page,
-          limit,
-        );
+        const searchResult = await this.emailMetadataRepo.searchByText(cuentaGmailId, searchTerm, page, limit)
 
         this.logger.log(
           `✅ Búsqueda BD: ${searchResult.emails.length} resultados`,
@@ -524,7 +522,7 @@ export class EmailsService {
 
       // 2️⃣ OBTENER TODAS LAS CUENTAS GMAIL DEL USUARIO
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserId(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         throw new NotFoundException(
