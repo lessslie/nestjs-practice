@@ -222,4 +222,56 @@ export class GmailAccountRepository {
 
     return !!(account?.access_token && account.esta_activa);
   }
+
+
+/**
+ * Buscar cuentas Gmail de un usuario CON conteo de emails
+ * 
+ * Este método es equivalente a obtenerCuentasGmailUsuario() del DatabaseService
+ */
+async findByUserIdWithEmailCount(userId: string): Promise<Array<{
+  id: string;
+  email_gmail: string;
+  nombre_cuenta: string;
+  alias_personalizado: string | null;
+  fecha_conexion: Date;
+  ultima_sincronizacion: Date | null;
+  esta_activa: boolean;
+  emails_count: number;
+}>> {
+  const cuentasConConteo = await this.prisma.$queryRaw<Array<{
+    id: string;
+    email_gmail: string;
+    nombre_cuenta: string;
+    alias_personalizado: string | null;
+    fecha_conexion: Date;
+    ultima_sincronizacion: Date | null;
+    esta_activa: boolean;
+    emails_count: bigint;
+  }>>`
+    SELECT 
+      cga.id,
+      cga.email_gmail,
+      cga.nombre_cuenta,
+      cga.alias_personalizado,
+      cga.fecha_conexion,
+      cga.ultima_sincronizacion,
+      cga.esta_activa,
+      COALESCE(COUNT(es.id), 0)::bigint as emails_count
+    FROM cuentas_gmail_asociadas cga
+    LEFT JOIN emails_sincronizados es ON cga.id = es.cuenta_gmail_id
+    WHERE cga.usuario_principal_id = ${userId}::uuid
+      AND cga.esta_activa = TRUE
+    GROUP BY cga.id
+    ORDER BY cga.fecha_conexion DESC
+  `;
+
+  // Convertir bigint a number para TypeScript
+  return cuentasConConteo.map(cuenta => ({
+    ...cuenta,
+    emails_count: Number(cuenta.emails_count)
+  }));
+}
+
+
 }

@@ -5,6 +5,7 @@ import { DatabaseService } from './database.service'; // ⚠️ Importar tempora
 import { EmailMetadataRepository } from './repositories/email-metadata.repository';
 import { EmailCompleteRepository } from './repositories/email-complete.repository';
 import { GmailAccountRepository } from './repositories/gmail-account.repository';
+import { EmailSyncRepository } from './repositories/email-sync.repository';
 
 /**
  * 🗂️ DatabaseModule
@@ -20,13 +21,15 @@ import { GmailAccountRepository } from './repositories/gmail-account.repository'
     DatabaseService,  // ⚠️ Temporal - mantener durante migración
     EmailMetadataRepository,
     EmailCompleteRepository,
-    GmailAccountRepository
+    GmailAccountRepository,
+    EmailSyncRepository
   ],
   exports: [
     DatabaseService,  // ⚠️ Temporal - eliminar después de migración
     EmailMetadataRepository,
     EmailCompleteRepository,
-    GmailAccountRepository
+    GmailAccountRepository,
+    EmailSyncRepository
   ]
 })
 export class DatabaseModule {}

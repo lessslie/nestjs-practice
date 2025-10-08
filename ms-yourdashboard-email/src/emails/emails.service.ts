@@ -4,15 +4,10 @@ import {
   NotFoundException,
   Logger,
   UnauthorizedException,
-  ServiceUnavailableException,
   BadRequestException,
 } from '@nestjs/common';
 import { google, gmail_v1 } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
-import {
-  DatabaseService,
-  EmailSearchFilters,
-} from '../database/database.service';
 import { SyncService, SyncOptions } from './sync.service';
 import {
   EmailListResponse,
@@ -34,10 +29,11 @@ import {
   EmailMetadataDBWithTrafficLight,
   ReplyEmailResponse,
   DeleteEmailResponse,
+  TrafficLightStatusCount,
+  UpdateTrafficLightsResult,
 } from './interfaces/traffic-light.interfaces';
 import { EmailAttachmentDto, EmailPriority, SendEmailDto } from './dto/send-email.dto';
 import { 
-  EmailHeaders, 
   EmailMessage, 
   GmailSendRequest, 
   GmailSendResponse, 
@@ -56,9 +52,7 @@ export class EmailsService {
 
 constructor(
   private readonly configService: ConfigService,
-  private readonly databaseService: DatabaseService,  // ⚠️ Mantener TEMPORALMENTE
   private readonly syncService: SyncService,
-  // ✅ NUEVOS REPOSITORIES
   private readonly emailMetadataRepo: EmailMetadataRepository,
   private readonly emailCompleteRepo: EmailCompleteRepository,
   private readonly gmailAccountRepo: GmailAccountRepository,
@@ -204,23 +198,24 @@ constructor(
           // Si falla API y tenemos BD, usar como fallback
           this.logger.warn(`⚠️ Gmail API falló, intentando BD como fallback`);
 
-          const dbResult = await this.databaseService.getEmailsPaginated(
+          const result = await this.emailMetadataRepo.findByAccountPaginated(
             cuentaGmailId,
             page,
             limit,
+            false // onlyUnread
           );
 
-          if (dbResult.total > 0) {
+          if (result.total > 0) {
             this.logger.log(
-              `💾 FALLBACK exitoso: ${dbResult.emails.length} emails desde BD`,
+              `💾 FALLBACK exitoso: ${result.emails.length} emails desde BD`,
             );
 
-            const emails = dbResult.emails.map(this.convertDBToEmailMetadata);
-            const totalPages = Math.ceil(dbResult.total / limit);
+            const emails = result.emails.map(this.convertDBToEmailMetadata);
+            const totalPages = Math.ceil(result.total / limit);
 
             return {
               emails,
-              total: dbResult.total,
+              total: result.total,
               page,
               limit,
               totalPages,
@@ -250,7 +245,7 @@ constructor(
     try {
       // Verificar si ya hay emails sincronizados
       const lastSync =
-        await this.databaseService.getLastSyncedEmail(cuentaGmailId);
+        await this.emailMetadataRepo.getLastSynced(cuentaGmailId);
 
       if (!lastSync) {
         this.logger.log(
@@ -366,12 +361,11 @@ constructor(
       // 🎮 DECISIÓN BASADA EN USE_DATABASE
       if (this.USE_DATABASE) {
         this.logger.log(`💾 MODO BD ACTIVO - Buscando en base de datos local`);
-
-        const filters: EmailSearchFilters = {
-          busqueda_texto: searchTerm.trim(),
-        };
-
-        const searchResult = await this.emailMetadataRepo.searchByText(cuentaGmailId, searchTerm, page, limit)
+        const searchResult = await this.emailMetadataRepo.searchByText(
+          cuentaGmailId,
+          searchTerm.trim(),
+          limit
+        );
 
         this.logger.log(
           `✅ Búsqueda BD: ${searchResult.emails.length} resultados`,
@@ -406,15 +400,11 @@ constructor(
           this.logger.warn(`⚠️ Gmail API falló, intentando BD como fallback`);
 
           // Fallback a BD
-          const filters: EmailSearchFilters = {
-            busqueda_texto: searchTerm.trim(),
-          };
-
-          const searchResult = await this.databaseService.searchEmailsInDB(
+          const searchResult = await this.emailMetadataRepo.searchByText(
             cuentaGmailId,
-            filters,
+            searchTerm.trim(),
             page,
-            limit,
+            limit
           );
 
           const emails = searchResult.emails.map(this.convertDBToEmailMetadata);
@@ -469,17 +459,17 @@ constructor(
 
         // 2️⃣ FALLBACK: BD local
         const dbStats =
-          await this.databaseService.getEmailStatsFromDB(cuentaGmailId);
+          await this.emailMetadataRepo.getStatsByAccount(cuentaGmailId);
 
-        if (dbStats.total_emails > 0) {
+        if (dbStats.total > 0) {
           this.logger.log(
-            `💾 FALLBACK stats desde BD: ${dbStats.total_emails} emails total`,
+            `💾 FALLBACK stats desde BD: ${dbStats.total} emails total`,
           );
 
           return {
-            totalEmails: dbStats.total_emails,
-            unreadEmails: dbStats.emails_no_leidos,
-            readEmails: dbStats.emails_leidos,
+            totalEmails: dbStats.total,
+            unreadEmails: dbStats.unread,
+            readEmails: dbStats.read,
           };
         } else {
           // Si no hay datos, retornar ceros
@@ -707,7 +697,7 @@ constructor(
 
       // 1️⃣ OBTENER TODAS LAS CUENTAS GMAIL DEL USUARIO
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         this.logger.warn(
@@ -733,15 +723,11 @@ constructor(
       // 2️⃣ BUSCAR EN BD EN PARALELO
       const searchPromises = cuentasGmail.map(async (cuenta) => {
         try {
-          const filters: EmailSearchFilters = {
-            busqueda_texto: searchTerm.trim(),
-          };
-
-          const searchResult = await this.databaseService.searchEmailsInDB(
+          const searchResult = await this.emailMetadataRepo.searchByText(
             cuenta.id,
-            filters,
+            searchTerm.trim(),
             1,
-            100,
+            100
           );
 
           const emailsConCuenta = searchResult.emails
@@ -841,7 +827,7 @@ constructor(
 
       // 1️⃣ OBTENER TODAS LAS CUENTAS GMAIL DEL USUARIO
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         this.logger.warn(
@@ -911,15 +897,11 @@ constructor(
               `💾 FALLBACK BD local para cuenta ${cuenta.email_gmail}`,
             );
 
-            const filters = {
-              busqueda_texto: searchTerm.trim(),
-            };
-
-            const fallbackResult = await this.databaseService.searchEmailsInDB(
+            const fallbackResult = await this.emailMetadataRepo.searchByText(
               cuenta.id,
-              filters,
+              searchTerm.trim(),
               1,
-              100,
+              100
             );
 
             const emailsFromDB = fallbackResult.emails
@@ -1058,7 +1040,7 @@ return {
 
       // 1️⃣ OBTENER TODAS LAS CUENTAS GMAIL DEL USUARIO
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         this.logger.warn(
@@ -1103,7 +1085,7 @@ return {
           console.log(
             `🔍 Obteniendo hasta ${maxEmailsPerAccount} emails de cuenta ${cuenta.email_gmail}`,
           );
-          const dbResult = await this.databaseService.getEmailsPaginated(
+          const dbResult = await this.emailMetadataRepo.findByAccountPaginated(
             cuenta.id,
             1, // Siempre página 1 para cada cuenta
             maxEmailsPerAccount, // Más emails por cuenta para unificar(paginacion alta)
@@ -1221,7 +1203,7 @@ return {
 
       // 1️⃣ OBTENER TODAS LAS CUENTAS GMAIL DEL USUARIO
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         this.logger.warn(
@@ -1319,7 +1301,7 @@ return {
             this.logger.log(`💾 FALLBACK BD para cuenta ${cuenta.email_gmail}`);
 
             const fallbackResult =
-              await this.databaseService.getEmailsPaginated(
+              await this.emailMetadataRepo.findByAccountPaginated(
                 cuenta.id,
                 1,
                 100,
@@ -1447,7 +1429,7 @@ return {
 
       // Obtener todas las cuentas del usuario
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         return {
@@ -1459,13 +1441,12 @@ return {
 
       // Obtener estadísticas de cada cuenta desde BD
       const statsPromises = cuentasGmail.map(async (cuenta) => {
-        const dbStats = await this.databaseService.getEmailStatsFromDB(
-          cuenta.id,
-        );
+        const dbStats = await this.emailMetadataRepo.getStatsByAccount(cuenta.id);
+
         return {
-          total: dbStats.total_emails,
-          unread: dbStats.emails_no_leidos,
-          read: dbStats.emails_leidos,
+          total: dbStats.total,
+          unread: dbStats.unread,
+          read: dbStats.read,
         };
       });
 
@@ -1505,7 +1486,7 @@ return {
 
       // Obtener todas las cuentas del usuario
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         return {
@@ -1577,7 +1558,7 @@ return {
       // Buscar en qué cuenta está este email
       // Por ahora, buscaremos en todas las cuentas del usuario
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         throw new NotFoundException(
@@ -1615,7 +1596,8 @@ return {
       throw error;
     }
   }
-  /**
+ 
+/**
  * 💾 Guardar contenido completo de email con JWT
  */
 async saveFullEmailContentWithJWT(
@@ -1639,53 +1621,60 @@ async saveFullEmailContentWithJWT(
     }
 
     // 2️⃣ BUSCAR EMAIL EN emails_sincronizados
-    const emailSincronizadoResult = await this.databaseService.query(
-      `SELECT es.*, cga.access_token, cga.refresh_token 
-       FROM emails_sincronizados es
-       JOIN cuentas_gmail_asociadas cga ON es.cuenta_gmail_id = cga.id
-       WHERE es.gmail_message_id = $1 AND cga.usuario_principal_id = $2`,
-      [gmailMessageId, userId]
+    const emailSincronizado = await this.emailMetadataRepo.findByIdWithAccount(
+      gmailMessageId,
+      userId
     );
-
-    if (emailSincronizadoResult.rows.length === 0) {
+    
+    if (!emailSincronizado) {
       throw new NotFoundException('Email no encontrado o no pertenece al usuario');
     }
+    
+    const email = emailSincronizado.email;
+    const cuentaGmail = emailSincronizado.cuentaGmail;
 
-    const email = emailSincronizadoResult.rows[0];
+    // 3️⃣ VERIFICAR SI YA ESTÁ GUARDADO
+    const existeCompleto = await this.emailCompleteRepo.findByGmailId(
+      email.cuenta_gmail_id,
+      gmailMessageId
+    );
 
+    if (existeCompleto) {
+      // ✅ Ya existe, no procesar - CALCULAR Y RETORNAR
+      const cuerpoTextoLen = existeCompleto.cuerpo_texto?.length || 0;
+      const cuerpoHtmlLen = existeCompleto.cuerpo_html?.length || 0;
+      const contentSize = cuerpoTextoLen + cuerpoHtmlLen;
+      
+      // Contar attachments de manera segura
+      let attachmentsCount = 0;
+      if (existeCompleto.adjuntos) {
+        try {
+          const adjuntosArray = typeof existeCompleto.adjuntos === 'string' 
+            ? JSON.parse(existeCompleto.adjuntos)
+            : existeCompleto.adjuntos;
+          attachmentsCount = Array.isArray(adjuntosArray) ? adjuntosArray.length : 0;
+        } catch {
+          attachmentsCount = 0;
+        }
+      }
+      
+      this.logger.log(`💾 Email ${gmailMessageId} ya tiene contenido completo - SALTANDO procesamiento`);
+      
+      return {
+        success: true,
+        message: 'Contenido completo ya existe',
+        emailId: gmailMessageId,
+        savedAt: existeCompleto.fecha_guardado?.toISOString() || new Date().toISOString(),
+        contentSize,
+        attachmentsCount,
+        hasFullContent: true,
+        wasAlreadySaved: true
+      };
+      // ✅ SALE AQUÍ - no continúa
+    }
 
-// 3️⃣ VERIFICAR SI YA ESTÁ GUARDADO
-const existeCompleto = await this.databaseService.query(
-  `SELECT 
-     id, 
-     LENGTH(cuerpo_texto) + LENGTH(cuerpo_html) as content_size,
-     jsonb_array_length(adjuntos) as attachments_count,
-     fecha_guardado
-   FROM emails_completos 
-   WHERE gmail_message_id = $1`,
-  [gmailMessageId]
-);
-
-if (existeCompleto.rows.length > 0) {
-  const existing = existeCompleto.rows[0];
-  
-  this.logger.log(`💾 Email ${gmailMessageId} ya tiene contenido completo - SALTANDO procesamiento`);
-  
-  return {
-    success: true,
-    message: 'Contenido completo ya existe',
-    emailId: gmailMessageId,
-    savedAt: existing.fecha_guardado.toISOString(),
-    contentSize: parseInt(existing.content_size) || 0,
-    attachmentsCount: parseInt(existing.attachments_count) || 0,
-    hasFullContent: true,
-    wasAlreadySaved: true
-  };
-  // NO CONTINÚA - sale aquí
-}
-
-// Solo llega aquí si NO existe
-this.logger.log(`💾 Email ${gmailMessageId} NO existe - procediendo a guardar`);
+    // ✅ Solo llega aquí si NO existe
+    this.logger.log(`💾 Email ${gmailMessageId} NO existe - procediendo a guardar`);
 
     // 4️⃣ OBTENER TOKEN VÁLIDO Y CONFIGURAR GMAIL API
     const accessToken = await this.getValidTokenForAccount(email.cuenta_gmail_id);
@@ -1725,26 +1714,19 @@ this.logger.log(`💾 Email ${gmailMessageId} NO existe - procediendo a guardar`
     };
 
     // 🔟 GUARDAR EN BASE DE DATOS
-    const insertResult = await this.databaseService.query(
-      `INSERT INTO emails_completos (
-        email_sincronizado_id, cuerpo_texto, cuerpo_html, 
-        headers_completos, adjuntos, labels_completos,
-        cuenta_gmail_id, usuario_principal_id, gmail_message_id, thread_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [
-        email.id,
-        bodyText,
-        bodyHtml,
-        JSON.stringify(headersCompletos),
-        JSON.stringify(adjuntos),
-        JSON.stringify(labelsCompletos),
-        email.cuenta_gmail_id,
-        userId,
-        gmailMessageId,
-        message.threadId
-      ]
-    );
-
+    const insertResult = await this.emailCompleteRepo.save({
+      gmail_message_id: gmailMessageId,
+      cuenta_gmail_id: email.cuenta_gmail_id,
+      usuario_principal_id: userId,
+      email_sincronizado_id: email.id,
+      cuerpo_texto: bodyText ?? undefined,
+      cuerpo_html: bodyHtml ?? undefined,
+      headers_completos: headersCompletos,
+      adjuntos: adjuntos,
+      thread_id: message.threadId ?? undefined,
+      labels_completos: labelsCompletos
+    });
+    
     // 📊 CALCULAR ESTADÍSTICAS
     const contentSize = (bodyText?.length || 0) + (bodyHtml?.length || 0) + 
                        adjuntos.reduce((sum, att) => sum + (att.size || 0), 0);
@@ -2175,7 +2157,7 @@ if (sendEmailData.attachments?.length) {
     }
 
     // 2️⃣ VALIDAR QUE LA CUENTA FROM PERTENEZCA AL USUARIO
-    const cuentasUsuario = await this.databaseService.obtenerCuentasGmailUsuario(userId);
+    const cuentasUsuario = await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
     const cuentaGmail = cuentasUsuario.find(cuenta => cuenta.email_gmail === sendEmailData.from);
     
     if (!cuentaGmail) {
@@ -3131,7 +3113,7 @@ private sanitizeFilename(filename: string): string {
       this.logger.log(`Usuario extraído del JWT: ${userId}`);
 
       // 2️⃣ BUSCAR EL EMAIL Y LA CUENTA EN UN SOLO QUERY
-      const emailResult = await this.databaseService.findEmailByIdForUser(
+      const emailResult = await this.emailMetadataRepo.findByIdWithAccount(
         messageId,
         userId,
       );
@@ -3185,7 +3167,7 @@ private sanitizeFilename(filename: string): string {
       let trafficLightUpdated = false;
       try {
         const markResult =
-          await this.databaseService.markEmailAsReplied(messageId);
+        await this.emailMetadataRepo.markAsReplied(messageId);
 
         if (markResult) {
           trafficLightUpdated = true;
@@ -3251,7 +3233,7 @@ private sanitizeFilename(filename: string): string {
 
       // Obtener todas las cuentas del usuario
       const cuentasGmail =
-        await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        await this.gmailAccountRepo.findByUserIdWithEmailCount(userId);
 
       if (!cuentasGmail || cuentasGmail.length === 0) {
         this.logger.warn(`Usuario ${userId} no tiene cuentas Gmail conectadas`);
@@ -3266,21 +3248,27 @@ private sanitizeFilename(filename: string): string {
 
       for (const cuenta of cuentasGmail) {
         try {
-          const estadisticas =
-            await this.databaseService.getTrafficLightStatsByAccount(cuenta.id);
+          const rawStats = await this.emailMetadataRepo.getTrafficLightStats(cuenta.id);
 
-          const totalSinResponder = estadisticas.reduce(
-            (sum, stat) => sum + parseInt(stat.count),
-            0,
-          );
+// Convertir al formato esperado
+const estadisticas: TrafficLightStatusCount[] = rawStats.map(stat => ({
+  traffic_light_status: stat.status as TrafficLightStatus,
+  count: stat.count,
+  avg_days: null
+}));
 
-          const accountStats: TrafficLightAccountStats = {
-            cuenta_id: cuenta.id,
-            email_gmail: cuenta.email_gmail,
-            nombre_cuenta: cuenta.nombre_cuenta,
-            estadisticas,
-            total_sin_responder: totalSinResponder,
-          };
+const totalSinResponder = estadisticas.reduce(
+  (sum, stat) => sum + parseInt(stat.count),
+  0
+);
+
+const accountStats: TrafficLightAccountStats = {
+  cuenta_id: cuenta.id,
+  email_gmail: cuenta.email_gmail,
+  nombre_cuenta: cuenta.nombre_cuenta,
+  estadisticas,
+  total_sin_responder: totalSinResponder,
+};
 
           dashboard.push(accountStats);
 
@@ -3337,7 +3325,7 @@ private sanitizeFilename(filename: string): string {
   ): Promise<EmailsByTrafficLightResponse> {
     try {
       const userId = this.extractUserIdFromJWT(authHeader);
-
+  
       if (!userId) {
         return {
           success: false,
@@ -3347,19 +3335,18 @@ private sanitizeFilename(filename: string): string {
           error: 'Token JWT inválido - no se pudo extraer userId',
         };
       }
-
+  
       this.logger.log(
         `Obteniendo emails con estado ${status} para usuario ${userId}`,
       );
-
+  
       let emails: EmailMetadataDBWithTrafficLight[] = [];
-
+  
       if (cuentaId) {
         // Verificar que la cuenta pertenece al usuario
-        const cuentasUsuario =
-          await this.databaseService.obtenerCuentasGmailUsuario(userId);
+        const cuentasUsuario = await this.gmailAccountRepo.findByUserId(userId);
         const cuentaValida = cuentasUsuario.find((c) => c.id === cuentaId);
-
+  
         if (!cuentaValida) {
           return {
             success: false,
@@ -3369,27 +3356,45 @@ private sanitizeFilename(filename: string): string {
             error: 'Cuenta no encontrada o no autorizada',
           };
         }
-
-        emails = await this.databaseService.getEmailsByTrafficLight(
+  
+        // ✅ VERSIÓN CORRECTA - Validar status
+        const validStatuses = ['green', 'red', 'yellow'] as const;
+        
+        if (!validStatuses.includes(status as any)) {
+          return {
+            success: false,
+            status,
+            count: 0,
+            emails: [],
+            error: `Estado inválido: ${status}. Solo se permiten: green, red, yellow`,
+          };
+        }
+  
+        emails = await this.emailMetadataRepo.findByTrafficLight(
           cuentaId,
-          status,
-          limit,
+          status as 'green' | 'red' | 'yellow',
+          limit
         );
       } else {
         // Obtener de todas las cuentas del usuario
-        const cuentasGmail =
-          await this.databaseService.obtenerCuentasGmailUsuario(userId);
-
+        const cuentasGmail = await this.gmailAccountRepo.findByUserId(userId);
+  
         const allEmails: EmailMetadataDBWithTrafficLight[] = [];
-
+  
         for (const cuenta of cuentasGmail) {
           try {
-            const emailsCuenta =
-              await this.databaseService.getEmailsByTrafficLight(
-                cuenta.id,
-                status,
-                limit * 2, // Obtener más emails para mezclar mejor
-              );
+            // ✅ VALIDAR STATUS también aquí
+            const validStatuses = ['green', 'red', 'yellow'] as const;
+            
+            if (!validStatuses.includes(status as any)) {
+              continue; // Saltar esta cuenta
+            }
+  
+            const emailsCuenta = await this.emailMetadataRepo.findByTrafficLight(
+              cuenta.id,
+              status as 'green' | 'red' | 'yellow',
+              limit * 2,
+            );
             allEmails.push(...emailsCuenta);
           } catch (error) {
             this.logger.warn(
@@ -3446,12 +3451,17 @@ private sanitizeFilename(filename: string): string {
       this.logger.log(`Usuario ${userId} solicitó actualización de semaforos`);
 
       // Actualizar todos los semaforos del sistema
-      const estadisticas = await this.databaseService.updateAllTrafficLights();
-
-      this.logger.log(
-        `Semáforos actualizados: ${estadisticas.actualizados} emails procesados`,
-      );
-
+      const startTime = Date.now();
+      const updateResult = await this.emailMetadataRepo.updateAllTrafficLights();
+      const tiempo_ms = Date.now() - startTime;
+      
+      // Construir el resultado completo
+      const estadisticas: UpdateTrafficLightsResult = {
+        actualizados: updateResult.actualizados,
+        por_estado: {},  // El repository no devuelve esto, lo dejamos vacío
+        tiempo_ms
+      };
+      
       return {
         success: true,
         message: 'Semáforos actualizados correctamente',
@@ -3640,7 +3650,7 @@ private sanitizeFilename(filename: string): string {
       }
 
       // 2️⃣ BUSCAR EMAIL Y VERIFICAR PERTENENCIA
-      const emailResult = await this.databaseService.findEmailByIdForUser(
+      const emailResult = await this.emailMetadataRepo.findByIdWithAccount(
         messageId,
         userId,
       );
@@ -3659,7 +3669,7 @@ private sanitizeFilename(filename: string): string {
 
       // 3️⃣ MARCAR COMO DELETED EN BD (usando semaforo)
       const deleteResult =
-        await this.databaseService.markEmailAsDeleted(messageId);
+        await this.emailMetadataRepo.markAsDeleted(messageId);
 
       if (!deleteResult) {
         return {
@@ -3702,7 +3712,7 @@ private sanitizeFilename(filename: string): string {
         success: true,
         message: `Email eliminado exitosamente`,
         emailId: messageId,
-        previousStatus: deleteResult.previousStatus,
+        previousStatus: deleteResult.previousStatus as TrafficLightStatus,
         deletedFromGmail,
       };
     } catch (error) {
