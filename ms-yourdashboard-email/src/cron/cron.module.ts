@@ -1,12 +1,16 @@
-import { Module } from "@nestjs/common";
-import { DatabaseModule } from "src/database/database.module";
-import { SyncService } from "src/emails/sync.service";
-import { SyncCronService } from "./sync-cron.service";
+import { Module, forwardRef } from '@nestjs/common'; 
+import { ScheduleModule } from '@nestjs/schedule';
+import { SyncCronService } from './sync-cron.service';
+import { EmailsModule } from '../emails/emails.module';
+import { DatabaseModule } from '../database/database.module';
 
 @Module({
-  imports: [DatabaseModule],
-  controllers: [],
-  providers: [SyncService, SyncCronService],
-  exports: [SyncService],
+  imports: [
+    ScheduleModule.forRoot(),
+    forwardRef(() => EmailsModule), 
+    DatabaseModule,
+  ],
+  providers: [SyncCronService],
+  exports: [SyncCronService],
 })
 export class CronModule {}

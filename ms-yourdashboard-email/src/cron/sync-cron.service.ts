@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { GmailAccountRepository } from '../database/repositories/gmail-account.repository';
 import { SyncService } from '../emails/sync.service';
+import { PrismaService } from '../database/prisma.service';
 
 
 @Injectable()
@@ -13,7 +14,9 @@ export class SyncCronService implements OnModuleInit {
   private readonly maxEmailsPerAccount: number;
   private readonly maxAccountsPerRun: number;
   private readonly activeDays: number;
-
+  
+  
+  
   onModuleInit() {
     this.logger.log('🚀 CRON Service inicializado!');
     this.logger.log(`📅 CRON está ${this.isEnabled ? 'ACTIVADO' : 'DESACTIVADO'}`);
@@ -25,6 +28,7 @@ export class SyncCronService implements OnModuleInit {
  constructor(
     private readonly configService: ConfigService,
     private readonly gmailAccountRepository: GmailAccountRepository,
+    private readonly prisma: PrismaService,
     @Inject(forwardRef(() => SyncService))
     private readonly syncService: SyncService,
   ) {
@@ -78,157 +82,130 @@ async syncWeekends() {
     await this.performSync('weekend');
   }
 }
-   //***************
+
+//***************
   // CRON para backfill de emails históricos("viejos")
   //********************************* */
 
-// @Cron('*/2 * * * *')  // Cada 2 minuto (ajustar según necesites)
-// async backfillHistoricalEmails() {
-//   if (!this.isEnabled) return;
+  @Cron('*/2 * * * *')  // Cada 2 minutos (ajustar según necesites)
+  async backfillHistoricalEmails() {
+    if (!this.isEnabled) return;
 
-//   this.logger.log('📚 [CRON BACKFILL] Iniciando carga de emails históricos');
-//   const startTime = Date.now();
+    this.logger.log('📚 [CRON BACKFILL] Iniciando carga de emails históricos');
+    const startTime = Date.now();
 
-//   try {
-//     // Obtener una cuenta con backfill pendiente
-//     const accounts = await this.databaseService.query(`
-//       SELECT 
-//         cga.id,
-//         cga.email_gmail,
-//         cga.access_token,
-//         cga.consecutive_zero_syncs,
-//         cga.backfill_page_token
-//       FROM cuentas_gmail_asociadas cga
-//       WHERE cga.esta_activa = true
-//         AND cga.consecutive_zero_syncs < 2
-//       ORDER BY cga.ultima_sincronizacion ASC NULLS FIRST
-//       LIMIT 1
-//     `);
+    try {
+      // Obtener una cuenta con backfill pendiente
+      const account = await this.gmailAccountRepository.findNextAccountForBackfill();
 
-//     if (accounts.rows.length === 0) {
-//       this.logger.log('✅ No hay cuentas pendientes de backfill');
-//       return;
-//     }
+      if (!account) {
+        this.logger.log('✅ No hay cuentas pendientes de backfill');
+        return;
+      }
 
-//     const account = accounts.rows[0];
-//     this.logger.log(`🔄 Backfill para ${account.email_gmail}`);
-    
-//     // Mostrar si tiene page token (continuación) o es inicio
-//     if (account.backfill_page_token) {
-//       this.logger.log(`📄 Continuando desde página anterior (token: ${account.backfill_page_token.substring(0, 20)}...)`);
-//     } else {
-//       this.logger.log(`🆕 Iniciando backfill desde el principio`);
-//     }
-
-//     // Configurar opciones de sync con pageToken si existe
-//     const syncOptions = {
-//       maxEmails: 500,  // Traer 500 por vez
-//       pageToken: account.backfill_page_token || undefined,  // Token de paginación si existe
-//       fullSync: true  // Indicar que es sync completo, no incremental
-//     };
-
-//     // Intentar sync con reintentos por token expirado
-//     let attempts = 0;
-//     let syncResult;
-
-//     while (attempts < 2) {
-//       try {
-//         syncResult = await this.syncService.syncEmailsFromGmail(
-//           account.access_token,
-//           account.id,
-//           syncOptions
-//         );
-//         break;
-//       } catch (syncError: any) {
-//         const is401Error = syncError?.status === 401 || syncError?.message?.includes('401');
-//         if (is401Error && attempts === 0) {
-//           this.logger.warn(`🔑 Token expirado para ${account.email_gmail}, renovando...`);
-//           const newToken = await this.databaseService.refreshGoogleToken(account.id);
-//           account.access_token = newToken;
-//           this.logger.log(`✅ Token renovado`);
-//           attempts++;
-//           continue;
-//         } else {
-//           throw syncError;
-//         }
-//       }
-//     }
-
-//     // Procesar resultado
-//     const emailsNuevos = syncResult?.emails_nuevos || 0;
-//     const emailsProcesados = syncResult?.emails_procesados || 0;
-//     const nextPageToken = syncResult?.nextPageToken || null;
-
-//     // Log del progreso
-//     this.logger.log(`📊 Procesados: ${emailsProcesados} emails (${emailsNuevos} nuevos)`);
-
-//     if (emailsProcesados === 0) {
-//       // No procesó emails - incrementar contador
-//       const newCount = (account.consecutive_zero_syncs || 0) + 1;
+      this.logger.log(`🔄 Backfill para ${account.email_gmail}`);
       
-//       await this.databaseService.query(`
-//         UPDATE cuentas_gmail_asociadas 
-//         SET consecutive_zero_syncs = $1,
-//             backfill_page_token = NULL
-//         WHERE id = $2
-//       `, [newCount, account.id]);
-      
-//       this.logger.warn(`⚠️ ${account.email_gmail}: 0 emails procesados (intento ${newCount}/2)`);
-      
-//       if (newCount >= 2) {
-//         this.logger.log(`🎉 ${account.email_gmail}: Backfill COMPLETADO - Total en BD: esperar próximo log...`);
+      // Mostrar si tiene page token (continuación) o es inicio
+      if (account.backfill_page_token) {
+        this.logger.log(`📄 Continuando desde página anterior (token: ${account.backfill_page_token.substring(0, 20)}...)`);
+      } else {
+        this.logger.log(`🆕 Iniciando backfill desde el principio`);
+      }
+
+      // Configurar opciones de sync con pageToken si existe
+      const syncOptions = {
+        maxEmails: 500,  // Traer 500 por vez
+        pageToken: account.backfill_page_token || undefined,  // Token de paginación si existe
+        fullSync: true  // Indicar que es sync completo, no incremental
+      };
+
+      // Intentar sync con reintentos por token expirado
+      let attempts = 0;
+      let syncResult;
+
+      while (attempts < 2) {
+        try {
+          syncResult = await this.syncService.syncEmailsFromGmail(
+            account.access_token!,
+            account.id,
+            syncOptions
+          );
+          break;
+        } catch (syncError: any) {
+          const is401Error = syncError?.status === 401 || syncError?.message?.includes('401');
+          if (is401Error && attempts === 0) {
+            this.logger.warn(`🔑 Token expirado para ${account.email_gmail}, renovando...`);
+            const newToken = await this.gmailAccountRepository.refreshGoogleToken(account.id);
+            account.access_token = newToken;
+            this.logger.log(`✅ Token renovado`);
+            attempts++;
+            continue;
+          } else {
+            throw syncError;
+          }
+        }
+      }
+
+      // Procesar resultado
+      const emailsNuevos = syncResult?.emails_nuevos || 0;
+      const emailsProcesados = syncResult?.emails_procesados || 0;
+      const nextPageToken = syncResult?.nextPageToken || null;
+
+      // Log del progreso
+      this.logger.log(`📊 Procesados: ${emailsProcesados} emails (${emailsNuevos} nuevos)`);
+
+      if (emailsProcesados === 0) {
+        // No procesó emails - incrementar contador
+        const newCount = (account.consecutive_zero_syncs || 0) + 1;
         
-//         // Obtener total de emails para el log final
-//         const totalResult = await this.databaseService.query(`
-//           SELECT COUNT(*) as total 
-//           FROM emails_sincronizados 
-//           WHERE cuenta_gmail_id = $1
-//         `, [account.id]);
+        await this.gmailAccountRepository.updateConsecutiveZeroSyncs(account.id, newCount);
+        await this.gmailAccountRepository.updateBackfillToken(account.id, null);
         
-//         this.logger.log(`📧 Total emails sincronizados: ${totalResult.rows[0].total}`);
-//       }
+        this.logger.warn(`⚠️ ${account.email_gmail}: 0 emails procesados (intento ${newCount}/2)`);
+        
+        if (newCount >= 2) {
+          this.logger.log(`🎉 ${account.email_gmail}: Backfill COMPLETADO`);
+          
+          // Obtener total de emails para el log final
+          const totalEmails = await this.prisma.emails_sincronizados.count({
+            where: { cuenta_gmail_id: account.id }
+          });
+          
+          this.logger.log(`📧 Total emails sincronizados: ${totalEmails}`);
+        }
+        
+      } else {
+        // Procesó emails - guardar page token y resetear contador
+        await this.gmailAccountRepository.updateConsecutiveZeroSyncs(account.id, 0);
+        await this.gmailAccountRepository.updateBackfillToken(account.id, nextPageToken);
+
+        // Log con información útil
+        if (nextPageToken) {
+          this.logger.log(`✅ ${account.email_gmail}: ${emailsNuevos} nuevos, ${emailsProcesados} procesados. Continuará en próximo ciclo...`);
+        } else {
+          this.logger.log(`🎉 ${account.email_gmail}: Llegamos al final! ${emailsNuevos} nuevos, ${emailsProcesados} procesados`);
+          
+          // Si no hay nextPageToken, marcar como completado
+          await this.gmailAccountRepository.updateConsecutiveZeroSyncs(account.id, 2);
+          await this.gmailAccountRepository.updateBackfillToken(account.id, null);
+        }
+      }
+
+      await this.sleep(5000); // Pausa de 5 segundos entre cuentas
+
+      const duration = Date.now() - startTime;
+      this.logger.log(`📚 [CRON BACKFILL] Finalizado en ${(duration / 1000).toFixed(2)} segundos`);
+
+    } catch (error: any) {
+      this.logger.error(`💥 Error en backfill: ${error.message}`);
       
-//     } else {
-//       // Procesó emails - guardar page token y resetear contador
-//       await this.databaseService.query(`
-//         UPDATE cuentas_gmail_asociadas 
-//         SET consecutive_zero_syncs = 0,
-//             backfill_page_token = $1,
-//             ultima_sincronizacion = NOW()
-//         WHERE id = $2
-//       `, [nextPageToken, account.id]);
-
-//       // Log con información útil
-//       if (nextPageToken) {
-//         this.logger.log(`✅ ${account.email_gmail}: ${emailsNuevos} nuevos, ${emailsProcesados} procesados. Continuará en próximo ciclo...`);
-//       } else {
-//         this.logger.log(`🎉 ${account.email_gmail}: Llegamos al final! ${emailsNuevos} nuevos, ${emailsProcesados} procesados`);
-        
-//         // Si no hay nextPageToken, marcar como completado
-//         await this.databaseService.query(`
-//           UPDATE cuentas_gmail_asociadas 
-//           SET consecutive_zero_syncs = 2,
-//               backfill_page_token = NULL
-//           WHERE id = $1
-//         `, [account.id]);
-//       }
-//     }
-
-//     await this.sleep(5000); // Pausa de 5 segundos entre cuentas
-
-//     const duration = Date.now() - startTime;
-//     this.logger.log(`📚 [CRON BACKFILL] Finalizado en ${(duration / 1000).toFixed(2)} segundos`);
-
-//   } catch (error: any) {
-//     this.logger.error(`💥 Error en backfill: ${error.message}`);
-    
-//     // Si hay error de rate limit, esperar más
-//     if (error.message?.includes('rate limit') || error.message?.includes('quota')) {
-//       this.logger.warn('⏳ Rate limit detectado, esperando 30 segundos...');
-//       await this.sleep(30000);
-//     }
-//   }
-// }
+      // Si hay error de rate limit, esperar más
+      if (error.message?.includes('rate limit') || error.message?.includes('quota')) {
+        this.logger.warn('⏳ Rate limit detectado, esperando 30 segundos...');
+        await this.sleep(30000);
+      }
+    }
+  }
 
 
 
@@ -295,15 +272,15 @@ async syncWeekends() {
                 this.logger.warn(`🔑 Token expirado para ${account.email_gmail}, renovando...`);
                 
                 try {
-                  // Renovar token
-                  // const newToken = await this.databaseService.refreshGoogleToken(account.id);
-                  // account.access_token = newToken; // Actualizar para el próximo intento
-                  // this.logger.log(`✅ Token renovado exitosamente para ${account.email_gmail}`);
-                  // attempts++;
-                  // continue; // Reintentar con el nuevo token
+                  //Renovar token
+                  const newToken = await this.gmailAccountRepository.refreshGoogleToken(account.id);
+                  account.access_token = newToken; // Actualizar para el próximo intento
+                  this.logger.log(` Token renovado exitosamente para ${account.email_gmail}`);
+                  attempts++;
+                  continue; // Reintentar con el nuevo token
                   
                 } catch (refreshError: any) {
-                  this.logger.error(`❌ No se pudo renovar token para ${account.email_gmail}: ${refreshError.message}`);
+                  this.logger.error(` No se pudo renovar token para ${account.email_gmail}: ${refreshError.message}`);
                   throw refreshError;
                 }
               } else {
@@ -322,7 +299,7 @@ async syncWeekends() {
   await this.gmailAccountRepository.updateLastSyncDate(account.id);
             
             this.logger.debug(
-              `✅ Cuenta ${account.email_gmail}: ${syncResult.emails_nuevos || 0} emails nuevos`
+              ` Cuenta ${account.email_gmail}: ${syncResult.emails_nuevos || 0} emails nuevos`
             );
           }
 
@@ -330,8 +307,8 @@ async syncWeekends() {
           await this.sleep(500);
 
         } catch (error: any) {
-          results.failedSyncs++;
-          const errorMsg = `❌ Error sincronizando ${account.email_gmail}: ${error.message}`;
+          results.failedSyncs++;  
+          const errorMsg = ` Error sincronizando ${account.email_gmail}: ${error.message}`;
           this.logger.error(errorMsg);
           results.errors.push(errorMsg);
         }

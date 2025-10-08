@@ -103,36 +103,38 @@ export class EmailSyncRepository {
    * Inserta nuevos emails o actualiza existentes.
    * Usa transacción para garantizar atomicidad.
    */
-  async syncMany(emails: EmailMetadataDB[]): Promise<SyncResult> {
+  async syncMany(emails: EmailMetadataDB[]): Promise<{
+    emails_nuevos: number;
+    emails_actualizados: number;
+  }> {
     if (emails.length === 0) {
-      return { 
-        emails_nuevos: 0, 
-        emails_actualizados: 0, 
-        total_procesados: 0, 
-        tiempo_ms: 0 
-      };
+      return { emails_nuevos: 0, emails_actualizados: 0 };
     }
-
+  
     const startTime = Date.now();
     let emailsNuevos = 0;
     let emailsActualizados = 0;
-
+  
     try {
-      // 🔄 Usar transacción para procesamiento en lote
-      await this.prisma.$transaction(async (tx) => {
-        for (const email of emails) {
-          // Verificar si existe
-          const existe = await tx.emails_sincronizados.findFirst({
+      // 🎯 Procesar cada email INDIVIDUALMENTE (sin transacción grande)
+      for (const email of emails) {
+        try {
+          // Primero verificar si existe
+          const existe = await this.prisma.emails_sincronizados.findFirst({
             where: {
               cuenta_gmail_id: email.cuenta_gmail_id,
               gmail_message_id: email.gmail_message_id
-            }
+            },
+            select: { id: true }
           });
-
+  
           if (existe) {
             // ✏️ UPDATE
-            await tx.emails_sincronizados.update({
-              where: { id: existe.id },
+            await this.prisma.emails_sincronizados.updateMany({
+              where: {
+                cuenta_gmail_id: email.cuenta_gmail_id,
+                gmail_message_id: email.gmail_message_id
+              },
               data: {
                 asunto: email.asunto,
                 remitente_email: email.remitente_email,
@@ -140,7 +142,7 @@ export class EmailSyncRepository {
                 destinatario_email: email.destinatario_email,
                 esta_leido: email.esta_leido,
                 tiene_adjuntos: email.tiene_adjuntos,
-                etiquetas_gmail: email.etiquetas_gmail || [],
+                etiquetas_gmail: email.etiquetas_gmail,
                 tamano_bytes: email.tamano_bytes,
                 fecha_sincronizado: new Date()
               }
@@ -148,7 +150,7 @@ export class EmailSyncRepository {
             emailsActualizados++;
           } else {
             // ➕ INSERT
-            await tx.emails_sincronizados.create({
+            await this.prisma.emails_sincronizados.create({
               data: {
                 cuenta_gmail_id: email.cuenta_gmail_id,
                 gmail_message_id: email.gmail_message_id,
@@ -159,29 +161,33 @@ export class EmailSyncRepository {
                 fecha_recibido: email.fecha_recibido,
                 esta_leido: email.esta_leido,
                 tiene_adjuntos: email.tiene_adjuntos,
-                etiquetas_gmail: email.etiquetas_gmail || [],
+                etiquetas_gmail: email.etiquetas_gmail,
                 tamano_bytes: email.tamano_bytes,
                 fecha_sincronizado: new Date()
               }
             });
             emailsNuevos++;
           }
+        } catch (emailError: any) {
+          // Si falla por constraint único (race condition), ignorar y contar como actualizado
+          if (emailError.code === 'P2002') {
+            this.logger.warn(`⚠️ Email duplicado (race condition), ignorando: ${email.gmail_message_id}`);
+            emailsActualizados++;
+          } else {
+            // Para otros errores, loguear pero continuar
+            this.logger.error(`❌ Error procesando email ${email.gmail_message_id}:`, emailError.message);
+          }
         }
-      });
-
+      }
+  
       const tiempoMs = Date.now() - startTime;
-      
-      this.logger.log(
-        `✅ Sync completado: ${emailsNuevos} nuevos, ${emailsActualizados} actualizados (${tiempoMs}ms)`
-      );
-
+      this.logger.log(`✅ Sync completado: ${emailsNuevos} nuevos, ${emailsActualizados} actualizados (${tiempoMs}ms)`);
+  
       return {
         emails_nuevos: emailsNuevos,
-        emails_actualizados: emailsActualizados,
-        total_procesados: emails.length,
-        tiempo_ms: tiempoMs
+        emails_actualizados: emailsActualizados
       };
-
+  
     } catch (error) {
       this.logger.error('❌ Error en syncMany:', error);
       throw error;
