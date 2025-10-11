@@ -10,3 +10,4 @@ export * from './logout-response.dto';
 export * from './forgot-password.dto';
 export * from './reset-password.dto';
 export * from './validate-token-response.dto';
+export * from './google-auth-response.dto'

@@ -12,6 +12,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   HttpCode,
+  Logger
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
@@ -30,6 +31,7 @@ import {
   ApiExcludeEndpoint,
   ApiInternalServerErrorResponse,
   ApiForbiddenResponse,
+  ApiResponse,
 } from '@nestjs/swagger';
 import { AuthOrchestratorService } from './auth.service';
 import { AuthStartResponseDto, AuthErrorResponseDto, ResetPasswordResponseDto, ResetPasswordDto, ValidateTokenResponseDto, ForgotPasswordDto, ForgotPasswordResponseDto } from './dto';
@@ -44,6 +46,7 @@ import {
 @Controller('auth')
 @ApiTags('Authentication')
 export class AuthOrchestratorController {
+  private readonly logger = new Logger(AuthOrchestratorController.name);
   constructor(private readonly authService: AuthOrchestratorService) {}
 
   // ================================
@@ -441,6 +444,69 @@ export class AuthOrchestratorController {
     );
     this.authService.handleGoogleCallback(req, res);
   }
+  /**
+ * 🆕 GET /auth/google/register - Registrarse con Google
+ * 
+ * ¿QUÉ HACE? Redirige al ms-auth para iniciar OAuth de registro
+ */
+@Get('google/register')
+@ApiOperation({
+  summary: 'Registrarse con Google OAuth',
+  description: 'Inicia el flujo de registro con Google. Redirige a Google OAuth.',
+})
+@ApiResponse({
+  status: 302,
+  description: 'Redirección a ms-auth para iniciar OAuth',
+})
+googleRegister(@Res() res: Response): void {
+  try {
+    this.logger.log('🔵 ORCHESTRATOR-AUTH - Registro con Google solicitado');
+
+    // Construir URL de ms-auth
+    const msAuthRegisterUrl = `${this.authService['msAuthUrl']}/auth/google/register`;
+    
+    this.logger.log(`🔗 ORCHESTRATOR-AUTH - Redirigiendo a: ${msAuthRegisterUrl}`);
+    
+    // Redirigir a ms-auth
+    res.redirect(msAuthRegisterUrl);
+
+  } catch (error) {
+    this.logger.error('❌ ORCHESTRATOR-AUTH - Error en registro con Google:', error);
+    throw error;
+  }
+}
+
+/**
+ * 🆕 GET /auth/google/login - Iniciar sesión con Google
+ * 
+ * ¿QUÉ HACE? Redirige al ms-auth para iniciar OAuth de login
+ */
+@Get('google/login')
+@ApiOperation({
+  summary: 'Iniciar sesión con Google OAuth',
+  description: 'Inicia el flujo de login con Google. Redirige a Google OAuth.',
+})
+@ApiResponse({
+  status: 302,
+  description: 'Redirección a ms-auth para iniciar OAuth',
+})
+googleLogin(@Res() res: Response): void {
+  try {
+    this.logger.log('🔵 ORCHESTRATOR-AUTH - Login con Google solicitado');
+
+    // Construir URL de ms-auth
+    const msAuthLoginUrl = `${this.authService['msAuthUrl']}/auth/google/login`;
+    
+    this.logger.log(`🔗 ORCHESTRATOR-AUTH - Redirigiendo a: ${msAuthLoginUrl}`);
+    
+    // Redirigir a ms-auth
+    res.redirect(msAuthLoginUrl);
+
+  } catch (error) {
+    this.logger.error('❌ ORCHESTRATOR-AUTH - Error en login con Google:', error);
+    throw error;
+  }
+}
 
   // ================================
   // 📧 GESTIÓN DE CUENTAS GMAIL

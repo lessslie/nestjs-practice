@@ -17,6 +17,7 @@ import axios from 'axios';
 import { UserRepository } from '../database/repositories/user.repository';
 import { SessionRepository } from '../database/repositories/session.repository';
 import { GmailAccountRepository } from '../database/repositories/gmail-account.repository';
+import { usuarios_principales } from 'generated/prisma';
 
 /**
  * 🔐 AuthService
@@ -216,6 +217,273 @@ export class AuthService {
       });
     }
   }
+// ================================
+// 🆕 GOOGLE OAUTH - REGISTER
+// ================================
+
+/**
+ * Registrar nuevo usuario con Google OAuth
+ * 
+ * ¿CUÁNDO SE USA? Cuando el usuario hace clic en "Registrarse con Google"
+ * 
+ * ¿QUÉ HACE?
+ * 1. Verifica si el email ya existe
+ *    - Si existe → Auto-vincular y loguear (mejor UX)
+ * 2. Si no existe → Crear usuario nuevo con Google
+ * 3. Generar JWT
+ * 4. Crear sesión
+ */
+async registrarUsuarioConGoogle(
+  googleId: string,
+  email: string,
+  nombre: string
+): Promise<{
+  success: boolean;
+  message: string;
+  usuario: UsuarioPrincipal;
+  token: string;
+  isNewUser: boolean;
+}> {
+  try {
+    this.logger.log(`🔵 Registrando usuario con Google: ${email}`);
+
+    // 1️⃣ VERIFICAR SI EL EMAIL YA EXISTE
+    const usuarioExistente = await this.userRepository.findByEmail(email);
+
+    if (usuarioExistente) {
+      this.logger.log(`🔗 Email ${email} ya existe - auto-vinculando con Google`);
+      
+      // AUTO-VINCULAR: Agregar google_id al usuario existente
+      const usuarioVinculado = await this.vincularGoogleAUsuarioExistente(
+        usuarioExistente,
+        googleId
+      );
+
+      // Generar JWT para el usuario vinculado
+      const token = this.generarJWT(usuarioVinculado as UsuarioPrincipal);
+
+      // Crear sesión
+      await this.sessionRepository.create({
+        usuario_principal_id: usuarioVinculado.id,
+        jwt_token: token,
+        duracion_horas: 24
+      });
+
+      this.logger.log(`✅ Usuario vinculado y logueado: ${email}`);
+
+      return {
+        success: true,
+        message: 'Cuenta vinculada exitosamente. Ahora puedes usar Google o email/password para entrar.',
+        usuario: usuarioVinculado as UsuarioPrincipal,
+        token,
+        isNewUser: false // ← No es nuevo, ya existía
+      };
+    }
+
+    // 2️⃣ CREAR USUARIO NUEVO CON GOOGLE
+    this.logger.log(`➕ Creando nuevo usuario con Google: ${email}`);
+
+    const nuevoUsuario = await this.userRepository.createWithGoogle({
+      email,
+      nombre,
+      google_id: googleId
+    });
+
+    // 3️⃣ GENERAR JWT
+    const token = this.generarJWT(nuevoUsuario as UsuarioPrincipal);
+
+    // 4️⃣ CREAR SESIÓN
+    await this.sessionRepository.create({
+      usuario_principal_id: nuevoUsuario.id,
+      jwt_token: token,
+      duracion_horas: 24
+    });
+
+    this.logger.log(`✅ Usuario registrado con Google exitosamente: ${email}`);
+
+    return {
+      success: true,
+      message: 'Usuario registrado con Google exitosamente',
+      usuario: nuevoUsuario as UsuarioPrincipal,
+      token,
+      isNewUser: true // ← Es usuario nuevo
+    };
+
+  } catch (error) {
+    this.logger.error(`❌ Error registrando usuario con Google:`, error);
+    throw new ConflictException({
+      codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
+      mensaje: 'Error interno al registrar usuario con Google'
+    });
+  }
+}
+
+// ================================
+// 🆕 GOOGLE OAUTH - LOGIN
+// ================================
+
+/**
+ * Login de usuario con Google OAuth
+ * 
+ * ¿CUÁNDO SE USA? Cuando el usuario hace clic en "Iniciar sesión con Google"
+ * 
+ * ¿QUÉ HACE?
+ * 1. Busca usuario por google_id O email
+ * 2. Si no existe → Error (debe registrarse primero)
+ * 3. Si existe → Generar JWT y loguear
+ */
+async loginUsuarioConGoogle(
+  googleId: string,
+  email: string,
+  // nombre: string   no se usa al iniciar con  google
+): Promise<{
+  success: boolean;
+  message: string;
+  usuario: UsuarioPrincipal;
+  token: string;
+  cuentas_gmail: any[];
+  sesiones_activas: any[];
+  estadisticas: any;
+}> {
+  try {
+    this.logger.log(`🔵 Login con Google: ${email}`);
+
+    // 1️⃣ BUSCAR USUARIO POR GOOGLE_ID (prioridad)
+    let usuario = await this.userRepository.findByGoogleId(googleId);
+
+    // 2️⃣ SI NO EXISTE POR GOOGLE_ID, BUSCAR POR EMAIL
+    if (!usuario) {
+      this.logger.log(`🔍 No encontrado por google_id, buscando por email: ${email}`);
+      usuario = await this.userRepository.findByEmail(email);
+
+      // Si existe por email pero no tiene google_id → Vincular
+      if (usuario && !usuario.google_id) {
+        this.logger.log(`🔗 Usuario encontrado por email - vinculando con Google`);
+        usuario = await this.vincularGoogleAUsuarioExistente(usuario, googleId);
+      }
+    }
+
+    // 3️⃣ SI NO EXISTE → ERROR
+    if (!usuario) {
+      this.logger.warn(`🚫 Usuario no encontrado: ${email}`);
+      throw new UnauthorizedException({
+        codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
+        mensaje: 'Usuario no registrado. Por favor regístrate primero.'
+      });
+    }
+
+    // 4️⃣ VERIFICAR ESTADO DEL USUARIO
+    if (usuario.estado !== 'activo') {
+      this.logger.warn(`🚫 Usuario inactivo: ${email}`);
+      throw new UnauthorizedException({
+        codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
+        mensaje: 'Usuario inactivo'
+      });
+    }
+
+    // 5️⃣ GENERAR JWT
+    const token = this.generarJWT(usuario as UsuarioPrincipal);
+
+    // 6️⃣ CREAR SESIÓN
+    await this.sessionRepository.create({
+      usuario_principal_id: usuario.id,
+      jwt_token: token,
+      duracion_horas: 24
+    });
+
+    // 7️⃣ ACTUALIZAR ÚLTIMA ACTIVIDAD
+    await this.userRepository.updateLastActivity(usuario.id);
+
+    this.logger.log(`✅ Login con Google exitoso: ${usuario.email}`);
+
+    // 8️⃣ OBTENER PERFIL COMPLETO
+    const perfilCompleto = await this.obtenerPerfil(usuario.id);
+
+    // 9️⃣ RETORNAR RESPUESTA COMPLETA (igual que login tradicional)
+    return {
+      success: true,
+      message: 'Login con Google exitoso',
+      usuario: {
+        id: usuario.id,
+        email: usuario.email,
+        nombre: usuario.nombre,
+        fecha_registro: usuario.fecha_registro ?? new Date(),
+        estado: usuario.estado,
+        email_verificado: usuario.email_verificado ?? true // Google ya verificó
+      } as UsuarioPrincipal,
+      token,
+      cuentas_gmail: perfilCompleto.cuentas_gmail.map(cuenta => ({
+        ...cuenta,
+        alias_personalizado: cuenta.alias_personalizado || null,
+        ultima_sincronizacion: cuenta.ultima_sincronizacion || null
+      })),
+      sesiones_activas: perfilCompleto.sesiones_activas.map(sesion => ({
+        ...sesion,
+        ip_origen: sesion.ip_origen || null,
+        user_agent: sesion.user_agent || null
+      })),
+      estadisticas: perfilCompleto.estadisticas
+    };
+
+  } catch (error) {
+    this.logger.error(`❌ Error en login con Google:`, error);
+
+    if (error instanceof UnauthorizedException) {
+      throw error;
+    }
+
+    throw new UnauthorizedException({
+      codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
+      mensaje: 'Error interno en login con Google'
+    });
+  }
+}
+
+// ================================
+// 🔧 HELPER PRIVADO - VINCULAR GOOGLE
+// ================================
+
+/**
+ * 🔗 Vincular Google ID a usuario existente
+ * 
+ * ¿CUÁNDO SE USA? Cuando un usuario tiene cuenta con email/password
+ * e intenta registrarse/loguearse con Google usando el mismo email
+ * 
+ * ¿QUÉ HACE?
+ * 1. Agrega google_id al usuario
+ * 2. Marca email como verificado (Google ya lo verificó)
+ * 3. Cambia oauth_provider a 'both'
+ * 4. Ahora el usuario puede entrar con ambos métodos
+ */
+private async vincularGoogleAUsuarioExistente(
+  usuario: usuarios_principales,
+  googleId: string
+): Promise<any> {
+  try {
+    this.logger.log(`🔗 Vinculando Google a usuario ${usuario.id}`);
+
+    // 1️⃣ Agregar google_id
+    await this.userRepository.addGoogleId(usuario.id, googleId);
+
+    // 2️⃣ Marcar email como verificado (Google ya lo verificó) 
+    await this.userRepository.markEmailAsVerified(usuario.id);
+
+    // 3️⃣ Actualizar oauth_provider a 'both'
+    const usuarioActualizado = await this.userRepository.updateOAuthProvider(
+      usuario.id,
+      'both'
+    );
+
+    this.logger.log(`✅ Google vinculado exitosamente a usuario ${usuario.id}`);
+
+    return usuarioActualizado;
+
+  } catch (error) {
+    this.logger.error(`❌ Error vinculando Google:`, error);
+    throw error;
+  }
+}
+
 
   // ================================
   // 👤 OBTENER PERFIL COMPLETO
@@ -746,7 +1014,7 @@ export class AuthService {
   // 🔧 HEALTH CHECK
   // ================================
 
-  async healthCheck() {
+  healthCheck() {
     try {
       // Verificar que podemos conectarnos a los repositories
       const usuariosCount = 0; // TODO: Implementar count en UserRepository
@@ -787,7 +1055,7 @@ export class AuthService {
     }
   }
 
-  async obtenerEstadisticasServicio(): Promise<any> {
+  obtenerEstadisticasServicio():any {
     // TODO: Implementar estadísticas usando repositories
     return {
       total_usuarios: 0,

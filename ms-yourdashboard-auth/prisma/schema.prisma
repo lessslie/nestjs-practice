@@ -26,7 +26,7 @@ model conversations {
   last_message_date   DateTime           @db.Timestamp(6)
   created_at          DateTime?          @default(now()) @db.Timestamp(6)
   whatsapp_account_id String?            @db.Uuid
-  whatsapp_accounts   whatsapp_accounts? @relation(fields: [whatsapp_account_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_conversations_whatsapp_account")
+  whatsapp_accounts   whatsapp_accounts? @relation(fields: [whatsapp_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_conversations_whatsapp_account")
   messages            messages[]
 
   @@index([last_message_date(sort: Desc)], map: "idx_conversations_last_message_date")
@@ -50,17 +50,15 @@ model cuentas_gmail_asociadas {
   backfill_page_token      String?                @db.VarChar(255)
   id                       String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   usuario_principal_id     String?                @db.Uuid
-  usuarios_principales     usuarios_principales?  @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuentas_gmail_usuario_principal")
+  usuarios_principales     usuarios_principales?  @relation(fields: [usuario_principal_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cuentas_gmail_usuario_principal")
   emails_completos         emails_completos[]
   emails_sincronizados     emails_sincronizados[]
   events_sincronizados     events_sincronizados[]
-  
 
   @@unique([usuario_principal_id, email_gmail], map: "cuentas_gmail_asociadas_usuario_email_unique")
   @@index([esta_activa], map: "idx_cuentas_gmail_activa")
   @@index([email_gmail], map: "idx_cuentas_gmail_email")
   @@index([google_id], map: "idx_cuentas_gmail_google_id")
-
 }
 
 model emails_completos {
@@ -76,14 +74,15 @@ model emails_completos {
   email_sincronizado_id   String?                  @db.Uuid
   cuenta_gmail_id         String?                  @db.Uuid
   usuario_principal_id    String?                  @db.Uuid
-  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  usuarios_principales    usuarios_principales?    @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  emails_sincronizados    emails_sincronizados?    @relation(fields: [email_sincronizado_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_emails_completos_sincronizados")
+  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuarios_principales    usuarios_principales?    @relation(fields: [usuario_principal_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  emails_sincronizados    emails_sincronizados?    @relation(fields: [email_sincronizado_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_emails_completos_sincronizados")
 
   @@index([gmail_message_id], map: "idx_emails_completos_gmail_id")
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model emails_sincronizados {
   gmail_message_id        String                   @db.VarChar(255)
   asunto                  String?
@@ -102,7 +101,7 @@ model emails_sincronizados {
   id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   cuenta_gmail_id         String?                  @db.Uuid
   emails_completos        emails_completos[]
-  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_emails_cuenta_gmail")
+  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_emails_cuenta_gmail")
 
   @@unique([cuenta_gmail_id, gmail_message_id], map: "emails_sincronizados_cuenta_gmail_message_unique")
   @@index([esta_leido], map: "idx_emails_esta_leido")
@@ -124,7 +123,7 @@ model events_sincronizados {
   fecha_sincronizado      DateTime?                @default(now()) @db.Timestamptz(6)
   id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   cuenta_gmail_id         String?                  @db.Uuid
-  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  cuentas_gmail_asociadas cuentas_gmail_asociadas? @relation(fields: [cuenta_gmail_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([cuenta_gmail_id, google_event_id], map: "events_sincronizados_cuenta_gmail_google_event_unique")
   @@index([google_event_id], map: "idx_events_google_id")
@@ -141,8 +140,8 @@ model messages {
   timestamp           DateTime           @db.Timestamp(6)
   created_at          DateTime?          @default(now()) @db.Timestamp(6)
   whatsapp_account_id String?            @db.Uuid
-  conversations       conversations      @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_messages_conversation")
-  whatsapp_accounts   whatsapp_accounts? @relation(fields: [whatsapp_account_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_messages_whatsapp_account")
+  conversations       conversations      @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_messages_conversation")
+  whatsapp_accounts   whatsapp_accounts? @relation(fields: [whatsapp_account_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_messages_whatsapp_account")
 
   @@index([conversation_id], map: "idx_messages_conversation")
   @@index([timestamp(sort: Desc)], map: "idx_messages_timestamp")
@@ -157,7 +156,7 @@ model sesiones_jwt {
   user_agent           String?
   id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   usuario_principal_id String?               @db.Uuid
-  usuarios_principales usuarios_principales? @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_sesiones_usuario_principal")
+  usuarios_principales usuarios_principales? @relation(fields: [usuario_principal_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sesiones_usuario_principal")
 
   @@index([esta_activa], map: "idx_sesiones_activa")
   @@index([expira_en], map: "idx_sesiones_expira_en")
@@ -167,21 +166,24 @@ model sesiones_jwt {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model usuarios_principales {
   email                   String                    @unique @db.VarChar(255)
-  password_hash           String
+  password_hash           String?
   nombre                  String                    @db.VarChar(255)
   fecha_registro          DateTime?                 @default(now()) @db.Timestamp(6)
   ultima_actualizacion    DateTime?                 @default(now()) @db.Timestamp(6)
   estado                  String?                   @default("activo") @db.VarChar(20)
   email_verificado        Boolean?                  @default(false)
   id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  google_id               String?                   @unique(map: "uq_usuarios_google_id") @db.VarChar(255)
+  oauth_provider          String?                   @default("email") @db.VarChar(20)
   cuentas_gmail_asociadas cuentas_gmail_asociadas[]
   emails_completos        emails_completos[]
+  password_reset_tokens   password_reset_token[]
   sesiones_jwt            sesiones_jwt[]
   whatsapp_accounts       whatsapp_accounts[]
-  password_reset_tokens password_reset_token[] 
 
   @@index([email], map: "idx_usuarios_principales_email")
   @@index([estado], map: "idx_usuarios_principales_estado")
+  @@index([oauth_provider], map: "idx_usuarios_oauth_provider")
   @@map("usuarios_principales")
 }
 
@@ -198,22 +200,21 @@ model whatsapp_accounts {
   usuario_principal_id String?               @db.Uuid
   conversations        conversations[]
   messages             messages[]
-  usuarios_principales usuarios_principales? @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_whatsapp_usuario")
+  usuarios_principales usuarios_principales? @relation(fields: [usuario_principal_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_whatsapp_usuario")
 }
 
 model password_reset_token {
-  id                    String   @id @default(uuid()) @db.Uuid
-  usuario_principal_id  String   @db.Uuid
-  email                 String   @db.VarChar(255)
-  token                 String   @unique @db.VarChar(255)
-  expira_en             DateTime @db.Timestamp(6)
-  fecha_creacion        DateTime @default(now()) @db.Timestamp(6)
-  usado                 Boolean  @default(false)
+  id                   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_principal_id String               @db.Uuid
+  email                String               @db.VarChar(255)
+  token                String               @unique @db.VarChar(255)
+  expira_en            DateTime             @db.Timestamptz(6)
+  fecha_creacion       DateTime?            @default(now()) @db.Timestamptz(6)
+  usado                Boolean?             @default(false)
+  usuario_principal    usuarios_principales @relation(fields: [usuario_principal_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_password_reset_usuario")
 
-  usuario_principal     usuarios_principales @relation(fields: [usuario_principal_id], references: [id], onDelete: Cascade)
-
-  @@index([email])
-  @@index([token])
-  @@index([expira_en])
+  @@index([email], map: "idx_password_reset_email")
+  @@index([expira_en], map: "idx_password_reset_expira")
+  @@index([token], map: "idx_password_reset_token")
   @@map("password_reset_tokens")
 }

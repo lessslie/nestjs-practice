@@ -528,6 +528,108 @@ async resetPassword(@Body() dto: ResetPasswordDto) {
   }
 }
 
+/**
+ * 🆕 GET /auth/google/register
+
+ */
+@Get('google/register')
+@ApiOperation({
+  summary: 'Registrarse con Google',
+  description: 'Inicia el flujo OAuth de Google para crear una nueva cuenta. No requiere token JWT.',
+})
+@ApiResponse({
+  status: 302,
+  description: 'Redirección a Google OAuth',
+})
+googleRegister(@Res() res: Response): void {
+  try {
+    this.logger.log('🔵 Iniciando registro con Google OAuth');
+
+    // 1️⃣ GENERAR URL DE GOOGLE OAUTH
+    const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('GOOGLE_REDIRECT_URI') || 
+                        'http://localhost:3001/auth/google/callback';
+    
+    // 2️⃣ SCOPES PARA AUTENTICACIÓN (no Gmail API)
+    const scopes = this.getScopesForAuth();
+    
+    // 3️⃣ CONSTRUIR PARÁMETROS
+    const params = new URLSearchParams({
+      client_id: clientId || '',
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes.join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      state: 'register:anonymous' // 🎯 IDENTIFICADOR DE REGISTRO
+    });
+
+    const authUrl = `${baseUrl}?${params.toString()}`;
+    this.logger.log(`🔗 Redirigiendo a Google para registro: ${authUrl}`);
+    
+    // 4️⃣ REDIRIGIR A GOOGLE
+    res.redirect(authUrl);
+
+  } catch (error) {
+    this.logger.error('❌ Error en registro con Google:', error);
+    this.handleOAuthError(res, error);
+  }
+}
+
+/**
+ * 🆕 GET /auth/google/login
+ * 
+ * ¿DIFERENCIA CON REGISTER?
+ * - state="login:anonymous" (en lugar de "register:anonymous")
+ * - El callback busca usuario existente en lugar de crearlo
+ * - Si no existe → Error "Debes registrarte primero"
+ */
+@Get('google/login')
+@ApiOperation({
+  summary: 'Iniciar sesión con Google',
+  description: 'Inicia el flujo OAuth de Google para usuarios existentes. No requiere token JWT.',
+})
+@ApiResponse({
+  status: 302,
+  description: 'Redirección a Google OAuth',
+})
+googleLogin(@Res() res: Response): void {
+  try {
+    this.logger.log('🔵 Iniciando login con Google OAuth');
+
+    // 1️⃣ GENERAR URL DE GOOGLE OAUTH
+    const baseUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('GOOGLE_REDIRECT_URI') || 
+                        'http://localhost:3001/auth/google/callback';
+    
+    // 2️⃣ SCOPES PARA AUTENTICACIÓN (no Gmail API)
+    const scopes = this.getScopesForAuth();
+    
+    // 3️⃣ CONSTRUIR PARÁMETROS
+    const params = new URLSearchParams({
+      client_id: clientId || '',
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes.join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      state: 'login:anonymous' // 🎯 IDENTIFICADOR DE LOGIN
+    });
+
+    const authUrl = `${baseUrl}?${params.toString()}`;
+    this.logger.log(`🔗 Redirigiendo a Google para login: ${authUrl}`);
+    
+    // 4️⃣ REDIRIGIR A GOOGLE
+    res.redirect(authUrl);
+
+  } catch (error) {
+    this.logger.error('❌ Error en login con Google:', error);
+    this.handleOAuthError(res, error);
+  }
+}
+
   /**
    * 🔧 Extraer token de request (header o query)
    */
@@ -647,11 +749,11 @@ private redirectToGoogleOAuth(res: Response, userId: string, service: 'gmail' | 
     res.redirect(errorUrl.toString());
   }
 
- @Get('google/callback')
+  @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   @ApiOperation({
     summary: 'Callback de Google OAuth',
-    description: 'Endpoint interno usado por Google OAuth. Ahora maneja Gmail Y Calendar.',
+    description: 'Endpoint interno usado por Google OAuth. Maneja registro, login, Gmail y Calendar.',
   })
   @ApiResponse({
     status: 302,
@@ -663,26 +765,42 @@ private redirectToGoogleOAuth(res: Response, userId: string, service: 'gmail' | 
     @Res() res: Response,
   ): Promise<void> {
     try {
-      console.log('🔵 Callback recibido de Google');
-      console.log('🔍 Estado recibido:', req.query.state);
-
-      // 🎯 EXTRAER USER ID + SERVICE DEL STATE
-      const { userId, service } = this.parseState(req.query.state);
-
-      console.log(`🎯 Procesando callback para usuario ${userId}, servicio: ${service}`);
-
-      // 🎯 PROCESAR SEGÚN EL SERVICIO
-      if (service === 'gmail') {
-        await this.handleGmailCallback(req.user, userId, res);
-      } else if (service === 'calendar') {
-        await this.handleCalendarCallback(req.user, userId, res);
-      } else {
-        throw new Error(`Servicio no soportado: ${service as string}`);
+      this.logger.log('🔵 Callback recibido de Google');
+      this.logger.log('🔍 Estado recibido:', req.query.state);
+  
+      //  PARSEAR STATE
+      const parsed = this.parseState(req.query.state);
+      
+      this.logger.log(`🎯 Acción detectada: ${parsed.action}`);
+  
+      //  Manejar REGISTER con Google
+      if (parsed.action === 'register') {
+        await this.handleRegisterCallback(req.user, res);
+        return;
       }
-      console.log(`✅ Callback procesado exitosamente para usuario ${userId}, servicio: ${service}`);
-
+  
+      //  Manejar LOGIN con Google
+      if (parsed.action === 'login') {
+        await this.handleLoginCallback(req.user, res);
+        return;
+      }
+  
+      //Manejar conexión de Gmail/Calendar
+      if (parsed.service === 'gmail') {
+        await this.handleGmailCallback(req.user, parsed.action, res);
+        return;
+      }
+  
+      if (parsed.service === 'calendar') {
+        await this.handleCalendarCallback(req.user, parsed.action, res);
+        return;
+      }
+  
+      //  Estado no reconocido
+      throw new Error(`Estado no soportado: ${parsed.action}`);
+  
     } catch (error) {
-      console.error('❌ Error en callback de OAuth:', error);
+      this.logger.error(' Error en callback de OAuth:', error);
       this.handleCallbackError(res, error);
     }
   }
@@ -1098,32 +1216,65 @@ async actualizarAliasCuenta(
   }
 
   /**
-   * 🔧 Parsear state (userId:service)
-   */
-  private parseState(state?: string): { userId: string; service: 'gmail' | 'calendar' } {
-    if (!state) {
-      throw new Error('Estado inválido - Usuario y servicio no identificados');
-    }
+ * 🔧 Obtener scopes para autenticación (login/register)
+ 
+ * - Para login/register solo necesitamos identificar al usuario
+ * - Para conectar Gmail necesitamos permisos de Gmail API
+ * 
+ */
+private getScopesForAuth(): string[] {
+  return [
+    'openid',   // ← Identificador único de Google
+    'email',    // ← Email del usuario
+    'profile'   // ← Nombre y foto de perfil
+  ];
+}
 
-    const parts = state.split(':');
-    
-    if (parts.length !== 2) {
-      // Retrocompatibilidad: si no hay ":", asumir que es solo userId + gmail
-      const userId = state;
-      if (!userId || userId.trim() === '') {
-        throw new Error('Estado inválido - formato incorrecto');
-      }
-      console.log(`📄 Retrocompatibilidad: userId ${userId}, asumiendo gmail`);
-      return { userId, service: 'gmail' };
-    }
-
-    const [userIdStr, service] = parts;
-    const userId = userIdStr;
-    if (!userId || userId.trim() === '') {
-      throw new Error('Estado inválido - userId vacío');
-    }
-    return { userId, service: service as 'gmail' | 'calendar' };
+/**
+ * 🔧 Parsear state
+ * 
+ * FORMATOS SOPORTADOS:
+ * - "register:anonymous" → Registro con Google (nuevo)
+ * - "login:anonymous" → Login con Google (nuevo)
+ * - "userId:gmail" → Conectar Gmail (existente)
+ * - "userId:calendar" → Conectar Calendar (existente)
+ */
+private parseState(state?: string): { 
+  action: string; 
+  identifier: string;
+  service?: 'gmail' | 'calendar';
+} {
+  if (!state) {
+    throw new Error('Estado inválido - no se proporcionó state parameter');
   }
+
+  const parts = state.split(':');
+  
+  if (parts.length !== 2) {
+    throw new Error('Estado inválido - formato incorrecto');
+  }
+
+  const [action, identifier] = parts;
+
+  // Detectar login/register
+  if (action === 'register' || action === 'login') {
+    this.logger.log(` Detectado ${action} con Google`);
+    return { action, identifier };
+  }
+
+  //  Conectar Gmail/Calendar (userId:service)
+  const userId = action;
+  const service = identifier as 'gmail' | 'calendar';
+  
+  if (!userId || userId.trim() === '') {
+    throw new Error('Estado inválido - userId vacío');
+  }
+  
+  this.logger.log(`🎯 Detectado vincular ${service} para usuario ${userId}`);
+  return { action: userId, identifier, service };
+}
+ 
+
 private async handleGmailCallback(
   googleUser: GoogleOAuthUser,
   userId: string,
@@ -1147,6 +1298,149 @@ private async handleGmailCallback(
 
   console.log(`✅ Gmail conectado, redirigiendo: ${redirectUrl.toString()}`);
   res.redirect(redirectUrl.toString());
+}
+
+/**
+ * 🆕 Manejar callback de REGISTER con Google
+ * 
+ * ¿CUÁNDO SE EJECUTA?
+ * - Usuario hace clic en "Registrarse con Google"
+ * - Google redirige a /auth/google/callback?state=register:anonymous
+ * 
+ * ¿QUÉ HACE?
+ * 1. Extrae datos del usuario de Google (email, nombre, google_id)
+ * 2. Llama al service para crear/vincular usuario
+ * 3. Redirige al frontend con el token JWT
+ */
+private async handleRegisterCallback(
+  googleUser: GoogleOAuthUser,
+  res: Response
+): Promise<void> {
+  try {
+    this.logger.log(`🆕 Procesando registro con Google: ${googleUser.email}`);
+
+    // 1️⃣ REGISTRAR USUARIO CON GOOGLE (o vincular si ya existe)
+    const resultado = await this.authService.registrarUsuarioConGoogle(
+      googleUser.googleId,
+      googleUser.email,
+      googleUser.name
+    );
+
+    // 2️⃣ CONSTRUIR URL DE REDIRECCIÓN AL FRONTEND
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 
+                        'http://localhost:3000';
+    const redirectUrl = new URL(frontendUrl);
+    
+    // 3️⃣ RUTA DE DESTINO EN FRONTEND
+    redirectUrl.pathname = '/auth/callback';
+    
+    // 4️⃣ PARÁMETROS EN LA URL
+    redirectUrl.searchParams.set('token', resultado.token); // ← JWT token
+    redirectUrl.searchParams.set('auth', 'success');
+    redirectUrl.searchParams.set('provider', 'google');
+    redirectUrl.searchParams.set('action', 'register');
+    
+    // 5️⃣ MENSAJE DESCRIPTIVO
+    if (resultado.isNewUser) {
+      redirectUrl.searchParams.set('message', 
+        encodeURIComponent('¡Bienvenido! Cuenta creada con Google exitosamente')
+      );
+    } else {
+      redirectUrl.searchParams.set('message', 
+        encodeURIComponent('Cuenta vinculada. Ahora puedes usar Google o email/password para entrar')
+      );
+    }
+
+    this.logger.log(`✅ Registro exitoso, redirigiendo a: ${redirectUrl.toString()}`);
+    
+    // 6️⃣ REDIRIGIR AL FRONTEND
+    res.redirect(redirectUrl.toString());
+
+  } catch (error) {
+    this.logger.error(`❌ Error en registro con Google:`, error);
+    this.handleCallbackError(res, error);
+  }
+}
+
+/**
+ * 🆕 Manejar callback de LOGIN con Google
+ * 
+ * ¿CUÁNDO SE EJECUTA?
+ * - Usuario hace clic en "Iniciar sesión con Google"
+ * - Google redirige a /auth/google/callback?state=login:anonymous
+ * 
+ * ¿QUÉ HACE?
+ * 1. Extrae datos del usuario de Google
+ * 2. Busca usuario existente (por google_id o email)
+ * 3. Si no existe → Error
+ * 4. Si existe → Redirige al frontend con el token JWT
+ */
+private async handleLoginCallback(
+  googleUser: GoogleOAuthUser,
+  res: Response
+): Promise<void> {
+  try {
+    this.logger.log(`🔑 Procesando login con Google: ${googleUser.email}`);
+
+    // 1️⃣ LOGIN CON GOOGLE (busca usuario existente)
+    const resultado = await this.authService.loginUsuarioConGoogle(
+      googleUser.googleId,
+      googleUser.email,
+      // googleUser.name
+    );
+
+    // 2️⃣ CONSTRUIR URL DE REDIRECCIÓN AL FRONTEND
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 
+                        'http://localhost:3000';
+    const redirectUrl = new URL(frontendUrl);
+    
+    // 3️⃣ RUTA DE DESTINO EN FRONTEND
+    redirectUrl.pathname = '/auth/callback';
+    
+    // 4️⃣ PARÁMETROS EN LA URL
+    redirectUrl.searchParams.set('token', resultado.token); // ← JWT token
+    redirectUrl.searchParams.set('auth', 'success');
+    redirectUrl.searchParams.set('provider', 'google');
+    redirectUrl.searchParams.set('action', 'login');
+    redirectUrl.searchParams.set('message', 
+      encodeURIComponent('¡Bienvenido de vuelta! Login con Google exitoso')
+    );
+
+    this.logger.log(`✅ Login exitoso, redirigiendo a: ${redirectUrl.toString()}`);
+    
+    // 5️⃣ REDIRIGIR AL FRONTEND
+    res.redirect(redirectUrl.toString());
+
+  } catch (error) {
+    this.logger.error(`❌ Error en login con Google:`, error);
+    
+    // Si el error es "Usuario no encontrado", personalizar mensaje
+    if (error instanceof UnauthorizedException) {
+      const errorData = error.getResponse();
+      if (typeof errorData === 'object' && 'mensaje' in errorData) {
+        const mensaje = (errorData as any).mensaje;
+        if (mensaje.includes('no registrado')) {
+          // Usuario intentó login pero no está registrado
+          const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 
+                              'http://localhost:3000';
+          const redirectUrl = new URL(frontendUrl);
+          redirectUrl.pathname = '/auth/callback';
+          redirectUrl.searchParams.set('auth', 'error');
+          redirectUrl.searchParams.set('message', 
+            encodeURIComponent('No tienes cuenta. Por favor regístrate primero.')
+          );
+          redirectUrl.searchParams.set('action', 'register-required');
+          
+          this.logger.log(`🔴 Usuario no registrado, redirigiendo a: ${redirectUrl.toString()}`);
+          res.redirect(redirectUrl.toString());
+          return;
+        }
+      }
+    }
+    
+    // Otros errores
+    this.handleCallbackError(res, error);
+  }
 }
 
 private async invalidateOrchestratorCache(userId: string): Promise<void> {
@@ -1204,7 +1498,7 @@ private async handleCalendarCallback(
   /**
    * 🔧 Manejar errores de callback
    */
-  private handleCallbackError(res: Response, error: unknown): void {
+private handleCallbackError(res: Response, error: unknown): void {
     console.log('🔴 Redirigiendo a error de autenticación');
 
     const errorUrl = new URL(

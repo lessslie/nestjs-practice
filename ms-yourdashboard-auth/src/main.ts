@@ -72,4 +72,4 @@ async function bootstrap() {
   console.log('='.repeat(60));
 }
 
-bootstrap();
+void bootstrap();
