@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { getMyProfile } from "@/services/auth/auth";
@@ -16,7 +16,7 @@ import EnhancedCalendarView from "@/components/Calendar/EnhancedCalendarView";
 import AccountManager from "@/components/Calendar/ccountManager";
 import { CalendarEvent } from "@/interfaces/interfacesCalendar";
 
-export default function CalendarioPage() {
+function CalendarioPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -72,32 +72,31 @@ export default function CalendarioPage() {
   useEffect(() => {
     const authStatus = searchParams.get("auth");
     const gmailConnected = searchParams.get("gmail");
-      const successParam = searchParams.get("success");      // ✨ 
-      const refreshParam = searchParams.get("refresh");      // ✨ 
+    const successParam = searchParams.get("success");
+    const refreshParam = searchParams.get("refresh");
 
-  // ✨  CONDICIÓN:
-  if (successParam === "true" && refreshParam === "profile") {
-    console.log('🔄 Calendar OAuth exitoso, refrescando perfil...');
-    
-    message.success({
-      content: "¡Google Calendar conectado exitosamente!",
-      duration: 5,
-    });
+    if (successParam === "true" && refreshParam === "profile") {
+      console.log('🔄 Calendar OAuth exitoso, refrescando perfil...');
+      
+      message.success({
+        content: "¡Google Calendar conectado exitosamente!",
+        duration: 5,
+      });
 
-    const reloadProfile = async () => {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const updatedProfile = await getMyProfile();
-        setUserProfile(updatedProfile);
-      } catch (error) {
-        console.error("Error recargando perfil:", error);
-      }
-    };
+      const reloadProfile = async () => {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const updatedProfile = await getMyProfile();
+          setUserProfile(updatedProfile);
+        } catch (error) {
+          console.error("Error recargando perfil:", error);
+        }
+      };
 
-    reloadProfile();
-    router.replace("/dashboard/calendar");
-    return; // ✨ IMPORTANTE: return para no ejecutar el resto
-  }
+      reloadProfile();
+      router.replace("/dashboard/calendar");
+      return;
+    }
 
     if (authStatus === "success" || gmailConnected) {
       message.success({
@@ -304,193 +303,19 @@ export default function CalendarioPage() {
                 Para comenzar a ver y gestionar tus eventos de calendario,
                 conecta tu cuenta de Google.
               </p>
-              <GoogleConnectButton />
+              <GoogleConnectButton size="large" />
             </div>
           </div>
         )}
       </main>
-
-      <style jsx>{`
-        .dashboard-layout {
-          min-height: 100vh;
-          background: #f8fafc;
-        }
-
-        .dashboard-header {
-          background: white;
-          border-bottom: 1px solid #e2e8f0;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        }
-
-        .header-content {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 0 24px;
-          height: 72px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .brand-icon {
-          font-size: 32px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .brand-info h1 {
-          margin: 0;
-          font-size: 24px;
-          font-weight: 700;
-          color: #1e293b;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .welcome-text {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 14px;
-          color: #64748b;
-          margin-top: 2px;
-        }
-
-        .dashboard-content {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 32px 24px;
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-        }
-
-        .connect-state {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-height: 400px;
-        }
-
-        .connect-content {
-          text-align: center;
-          background: white;
-          padding: 48px;
-          border-radius: 16px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-          max-width: 400px;
-          width: 100%;
-        }
-
-        .connect-icon {
-          font-size: 48px;
-          margin-bottom: 24px;
-        }
-
-        .connect-content h2 {
-          margin: 0 0 12px 0;
-          font-size: 24px;
-          font-weight: 600;
-          color: #1e293b;
-        }
-
-        .connect-content p {
-          margin: 0 0 32px 0;
-          color: #64748b;
-          line-height: 1.6;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 20px;
-        }
-
-        .stat-card {
-          background: white;
-          padding: 24px;
-          border-radius: 12px;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .stat-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-        }
-
-        .stat-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 20px;
-          background: #f1f5f9;
-          color: #64748b;
-        }
-
-        .stat-icon.active {
-          background: #dcfce7;
-          color: #16a34a;
-        }
-
-        .stat-icon.synced {
-          background: #ede9fe;
-          color: #7c3aed;
-        }
-
-        .stat-content h3 {
-          margin: 0;
-          font-size: 28px;
-          font-weight: 700;
-          color: #1e293b;
-        }
-
-        .stat-content p {
-          margin: 4px 0 0 0;
-          font-size: 14px;
-          color: #64748b;
-          font-weight: 500;
-        }
-
-        @media (max-width: 768px) {
-          .header-content {
-            padding: 0 16px;
-            flex-direction: column;
-            height: auto;
-            padding-top: 16px;
-            padding-bottom: 16px;
-            gap: 16px;
-          }
-
-          .dashboard-content {
-            padding: 20px 16px;
-          }
-
-          .brand-info h1 {
-            font-size: 20px;
-          }
-
-          .stats-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-      `}</style>
     </div>
+  );
+}
+
+export default function CalendarioPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: '50px' }}>Cargando calendario...</div>}>
+      <CalendarioPageContent />
+    </Suspense>
   );
 }

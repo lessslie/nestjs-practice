@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { getMyProfile } from "@/services/auth/auth";
 import { Spin, message, Alert } from "antd";
 
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { accessToken, setUserProfile } = useAuthStore();
@@ -76,101 +76,112 @@ export default function AuthCallbackPage() {
           try {
             const updatedProfile = await getMyProfile();
             addDebugInfo(
-              `✅ Perfil recargado exitosamente. Cuentas Gmail: ${
-                updatedProfile?.cuentas_gmail?.length || 0
-              }`
+              `✅ Perfil recargado exitosamente. Cuentas Gmail: ${updatedProfile?.cuentas_gmail?.length || 0}`
             );
 
             setUserProfile(updatedProfile);
+            setCurrentStep("¡Perfil actualizado!");
 
+            message.destroy("oauth-success");
             message.success({
-              content: `¡Cuenta ${
-                gmailConnected || "de Google"
-              } conectada exitosamente!`,
-              key: "oauth-success",
+              content: "¡Cuenta de Google conectada exitosamente!",
+              key: "oauth-final",
               duration: 3,
             });
 
-            addDebugInfo("🎯 Redirigiendo al calendario...");
-            setCurrentStep("Redirigiendo al calendario...");
-
+            addDebugInfo("🎉 Proceso completado - redirigiendo al dashboard");
             setTimeout(() => {
-              router.replace("/dashboard/calendar");
-            }, 1000);
+              router.push("/dashboard/calendar");
+            }, 1500);
           } catch (profileError) {
+            console.error("Error recargando perfil:", profileError);
             addDebugInfo(`❌ Error al recargar perfil: ${profileError}`);
-            setCurrentStep("Error al cargar perfil");
 
-            message.error({
+            message.destroy("oauth-success");
+            message.warning({
               content:
-                "Error al cargar la cuenta conectada. Redirigiendo al calendario...",
-              key: "oauth-success",
+                "Cuenta conectada pero hubo un problema al actualizar el perfil. Recarga la página.",
+              duration: 5,
             });
 
             setTimeout(() => {
               router.push("/dashboard/calendar");
-            }, 2000);
+            }, 3000);
           }
         } else {
-          addDebugInfo("⚠️ Caso por defecto - redirigiendo al calendario");
-          setCurrentStep("Redirigiendo...");
-
+          addDebugInfo("❓ Estado de autenticación desconocido");
+          setCurrentStep("Redirigiendo al dashboard...");
           setTimeout(() => {
             router.push("/dashboard/calendar");
-          }, 1000);
+          }, 1500);
         }
       } catch (error) {
-        addDebugInfo(`❌ Error general en callback: ${error}`);
-        setCurrentStep("Error en el proceso");
+        console.error("Error en callback:", error);
+        addDebugInfo(`❌ Error general: ${error}`);
+        setCurrentStep("Error procesando callback");
 
-        message.error("Error en el proceso de autenticación");
-
+        message.error("Error procesando la autenticación");
         setTimeout(() => {
           router.push("/dashboard/calendar");
         }, 2000);
       }
     };
 
-    if (searchParams && accessToken !== undefined) {
-      handleCallback();
-    }
-  }, [searchParams, router, setUserProfile, accessToken]);
+    handleCallback();
+  }, [accessToken, searchParams, router, setUserProfile]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-8">
-      <Spin size="large" />
-      <p className="mt-4 text-lg font-medium">{currentStep}</p>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        padding: "20px",
+      }}
+    >
+      <div
+        style={{
+          background: "white",
+          padding: "40px",
+          borderRadius: "12px",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
+          maxWidth: "500px",
+          width: "100%",
+        }}
+      >
+        <Spin size="large" />
+        <h2 style={{ marginTop: "20px", textAlign: "center" }}>
+          {currentStep}
+        </h2>
 
-      {/* Panel de debug - solo en desarrollo */}
-      {process.env.NODE_ENV === "development" && debugInfo.length > 0 && (
-        <div className="mt-8 w-full max-w-2xl">
+        {debugInfo.length > 0 && (
           <Alert
-            message="Información de Debug"
+            message="Debug Info"
             description={
-              <div className="max-h-64 overflow-y-auto">
-                {debugInfo.map((info, index) => (
-                  <div key={index} className="text-xs font-mono mb-1">
+              <div style={{ maxHeight: "200px", overflow: "auto" }}>
+                {debugInfo.map((info, idx) => (
+                  <div key={idx} style={{ fontSize: "12px", margin: "4px 0" }}>
                     {info}
                   </div>
                 ))}
               </div>
             }
             type="info"
-            showIcon
+            style={{ marginTop: "20px" }}
           />
-        </div>
-      )}
-
-      {/* Botón de emergencia */}
-      <button
-        onClick={() => {
-          addDebugInfo("🚨 Botón de emergencia activado");
-          router.push("/dashboard/calendar");
-        }}
-        className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-      >
-        Ir al Calendar (Emergencia)
-      </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: '50px' }}>Loading...</div>}>
+      <AuthCallbackContent />
+    </Suspense>
   );
 }

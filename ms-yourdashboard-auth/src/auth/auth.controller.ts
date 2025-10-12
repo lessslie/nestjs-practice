@@ -28,7 +28,6 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiBearerAuth,
-  ApiExcludeEndpoint,
   ApiNotFoundResponse,
   ApiQuery,
 } from '@nestjs/swagger';
@@ -753,54 +752,37 @@ private redirectToGoogleOAuth(res: Response, userId: string, service: 'gmail' | 
   @UseGuards(AuthGuard('google'))
   @ApiOperation({
     summary: 'Callback de Google OAuth',
-    description: 'Endpoint interno usado por Google OAuth. Maneja registro, login, Gmail y Calendar.',
+    description: 'Maneja registro, login, Gmail y Calendar.',
   })
-  @ApiResponse({
-    status: 302,
-    description: 'Redirección al frontend con resultado',
-  })
-  @ApiExcludeEndpoint()
   async googleAuthRedirect(
     @Req() req: ReqCallbackGoogle & { query: { state?: string } },
     @Res() res: Response,
   ): Promise<void> {
     try {
-      this.logger.log('🔵 Callback recibido de Google');
-      this.logger.log('🔍 Estado recibido:', req.query.state);
-  
-      //  PARSEAR STATE
       const parsed = this.parseState(req.query.state);
       
-      this.logger.log(`🎯 Acción detectada: ${parsed.action}`);
-  
-      //  Manejar REGISTER con Google
       if (parsed.action === 'register') {
         await this.handleRegisterCallback(req.user, res);
         return;
       }
-  
-      //  Manejar LOGIN con Google
+      
       if (parsed.action === 'login') {
         await this.handleLoginCallback(req.user, res);
         return;
       }
-  
-      //Manejar conexión de Gmail/Calendar
+      
       if (parsed.service === 'gmail') {
         await this.handleGmailCallback(req.user, parsed.action, res);
         return;
       }
-  
+      
       if (parsed.service === 'calendar') {
         await this.handleCalendarCallback(req.user, parsed.action, res);
         return;
       }
-  
-      //  Estado no reconocido
+      
       throw new Error(`Estado no soportado: ${parsed.action}`);
-  
     } catch (error) {
-      this.logger.error(' Error en callback de OAuth:', error);
       this.handleCallbackError(res, error);
     }
   }

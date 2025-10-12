@@ -1,38 +1,68 @@
-
-FROM node:20-alpine
-
+# ==========================================
+# STAGE 1: Builder - Compilación
+# ==========================================
+FROM node:22-alpine AS builder
 
 LABEL maintainer="YourDashboard Team"
-LABEL description="Orchestrator BFF - Coordina microservicios y cache Redis"
-LABEL version="1.0"
+LABEL description="MS-Orchestrator - BFF que coordina microservicios"
+LABEL version="2.0"
 
-
-# ¿Por qué curl? Para hacer health checks a otros microservicios
-# ¿Por qué en Alpine? Necesitamos instalarlo manualmente
-RUN apk add --no-cache curl
+RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-#  Copiar package files primero para cache optimization
+# Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias y limpiar cache
-RUN npm ci --only=production && npm cache clean --force
+# Instalar dependencias
+RUN npm ci
 
+# Copiar código fuente
 COPY . .
 
-# Compilar TypeScript + Crear usuario seguro
-RUN npm run build && \
-    addgroup -g 1001 -S nodejs && \
-    adduser -S nestjs -u 1001 && \
-    chown -R nestjs:nodejs /app
+# Compilar TypeScript (SIN Prisma por ahora)
+RUN npm run build
+
+# ==========================================
+# STAGE 2: Runner - Producción
+# ==========================================
+FROM node:22-alpine AS runner
+
+LABEL maintainer="YourDashboard Team"
+LABEL description="MS-Orchestrator Runtime - Coordina microservicios + Redis Cache"
+
+# Instalar curl para health checks
+RUN apk add --no-cache \
+    libc6-compat \
+    curl \
+    tini
+
+WORKDIR /app
+
+# Crear usuario no-root
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001
+
+# Copiar package files
+COPY package*.json ./
+
+# Instalar solo producción (sin scripts porque no hay Prisma)
+RUN npm ci --only=production --ignore-scripts && \
+    npm cache clean --force
+
+# Copiar código compilado
+COPY --from=builder --chown=nestjs:nodejs /app/dist/ ./dist/
 
 # Cambiar a usuario no-root
 USER nestjs
 
 EXPOSE 3003
 
-# Verificar que el orchestrator está vivo Y puede conectar a Redis
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-CMD node healthcheck.js || exit 1
-CMD ["npm", "run", "start:prod"]
+    CMD curl -f http://localhost:3003/health || exit 1
+
+# Usar tini
+ENTRYPOINT ["/sbin/tini", "--"]
+
+CMD ["node", "dist/main.js"]

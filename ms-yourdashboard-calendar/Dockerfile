@@ -4,7 +4,7 @@
 FROM node:22-alpine AS builder
 
 LABEL maintainer="YourDashboard Team"
-LABEL description="MS-Email - Gestión de emails con Gmail API"
+LABEL description="MS-Calendar - Integración con Google Calendar API"
 LABEL version="2.0"
 
 # Instalar dependencias de sistema necesarias para Prisma
@@ -16,7 +16,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Instalar todas las dependencias
+# Instalar dependencias
 RUN npm ci
 
 # Copiar código fuente
@@ -32,7 +32,7 @@ RUN npx prisma generate && \
 FROM node:22-alpine AS runner
 
 LABEL maintainer="YourDashboard Team"
-LABEL description="MS-Email Runtime - Producción optimizada con Prisma"
+LABEL description="MS-Calendar Runtime - Producción optimizada con Prisma"
 
 # Instalar dependencias de sistema
 RUN apk add --no-cache \
@@ -50,14 +50,12 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copiar package files
 COPY package*.json ./
 
-# Copiar prisma schema ANTES de npm ci
-COPY --from=builder /app/prisma ./prisma
-
-# Instalar dependencias sin ejecutar scripts
-RUN npm ci --only=production --ignore-scripts && \
+# Instalar solo producción
+RUN npm ci --only=production && \
     npm cache clean --force
 
-# Generar Prisma client
+# Copiar prisma schema y generar client
+COPY --from=builder /app/prisma ./prisma
 RUN npx prisma generate
 
 # Copiar código compilado
@@ -66,13 +64,13 @@ COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 # Cambiar a usuario no-root
 USER nestjs
 
-EXPOSE 3002
+EXPOSE 3005
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3002/health || exit 1
+    CMD curl -f http://localhost:3005/health || exit 1
 
-# Usar tini para señales
+# Usar tini
 ENTRYPOINT ["/sbin/tini", "--"]
 
 CMD ["node", "dist/main.js"]
