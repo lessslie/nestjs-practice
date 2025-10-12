@@ -22,7 +22,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./ms-yourdashboard-auth/src/database/init_ms_auth.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./ms-yourdashboard-auth/src/database/migration_scripts:/migration_scripts
+      - ./ms-yourdashboard-auth/src/database/migration_scripts/00_master.sql:/docker-entrypoint-initdb.d/00_init.sql
     networks:
       - yourdashboard-network
     healthcheck:
@@ -107,6 +108,12 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3002
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ms_yourdashboard_auth}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - yourdashboard-network
     security_opt:
@@ -144,6 +151,12 @@ services:
         condition: service_started
     networks:
       - yourdashboard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     security_opt:
       - no-new-privileges:true
 
@@ -189,6 +202,12 @@ services:
       - ms-orchestrator
     networks:
       - yourdashboard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     security_opt:
       - no-new-privileges:true
 

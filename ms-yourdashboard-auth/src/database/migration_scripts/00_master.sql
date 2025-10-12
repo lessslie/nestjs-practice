@@ -26,64 +26,64 @@
 -- PASO 1: CREAR BASE DE DATOS
 -- =====================================
 \echo '📊 [1/13] Creando base de datos...'
-\i 01_create_database.sql
+\ir /migration_scripts/01_create_database.sql
 
 -- =====================================
 -- PASO 2: TABLAS RAÍZ (sin dependencias)
 -- =====================================
 \echo '👤 [2/13] Creando usuarios_principales...'
-\i 02_usuarios_principales.sql
+\ir /migration_scripts/02_usuarios_principales.sql
 
 \echo '📱 [3/13] Creando whatsapp_accounts...'
-\i 08_whatsapp_accounts.sql
+\ir /migration_scripts/08_whatsapp_accounts.sql
 
 -- =====================================
 -- PASO 3: TABLAS NIVEL 1 (1 dependencia)
 -- =====================================
 \echo '📧 [4/13] Creando cuentas_gmail_asociadas...'
-\i 03_cuentas_gmail_asociadas.sql
+\ir /migration_scripts/03_cuentas_gmail_asociadas.sql
 
 \echo '🔐 [5/13] Creando sesiones_jwt...'
-\i 07_sesiones_jwt.sql
+\ir /migration_scripts/07_sesiones_jwt.sql
 
 \echo '💬 [6/13] Creando conversations...'
-\i 09_conversations.sql
+\ir /migration_scripts/09_conversations.sql
 
 -- =====================================
 -- PASO 4: TABLAS NIVEL 2 (múltiples dependencias)
 -- =====================================
 \echo '📨 [7/13] Creando emails_sincronizados...'
-\i 04_emails_sincronizados.sql
+\ir /migration_scripts/04_emails_sincronizados.sql
 
 \echo '📅 [8/13] Creando events_sincronizados...'
-\i 06_events_sincronizados.sql
+\ir /migration_scripts/06_events_sincronizados.sql
 
 \echo '💭 [9/13] Creando messages...'
-\i 10_messages.sql
+\ir /migration_scripts/10_messages.sql
 
 -- =====================================
 -- PASO 5: TABLAS COMPLEJAS
 -- =====================================
 \echo '📄 [10/13] Creando emails_completos...'
-\i 05_emails_completos.sql
+\ir /migration_scripts/05_emails_completos.sql
 
 -- =====================================
 -- PASO 6: AUDITORÍA
 -- =====================================
 \echo '🔍 [11/13] Creando audit_eliminaciones...'
-\i 11_audit_eliminaciones.sql
+\ir /migration_scripts/11_audit_eliminaciones.sql
 
 -- =====================================
 -- PASO 7: FUNCIONES Y PROCEDIMIENTOS
 -- =====================================
 \echo '⚙️ [12/13] Creando funciones...'
-\i 12_functions.sql
+\ir /migration_scripts/12_functions.sql
 
 -- =====================================
 -- PASO 8: ÍNDICES OPTIMIZADOS
 -- =====================================
 \echo '🚀 [13/13] Creando índices...'
-\i 13_indexes.sql
+\ir /migration_scripts/13_indexes.sql
 
 -- =====================================
 -- VERIFICACIÓN FINAL

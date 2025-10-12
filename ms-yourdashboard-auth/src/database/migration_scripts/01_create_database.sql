@@ -1,15 +1,15 @@
 -- =====================================
--- CREAR BASE DE DATOS
+-- VERIFICAR BASE DE DATOS
 -- =====================================
 -- Archivo: 01_create_database.sql
+-- NOTA: Docker Compose ya creó la BD con POSTGRES_DB
+--       Solo verificamos que estamos conectados correctamente
 
--- Crear la base de datos
-CREATE DATABASE ms_yourdashboard_auth;
-
--- Conectar a la base de datos recién creada
-\c ms_yourdashboard_auth;
-
--- Mensaje de confirmación
+-- Verificar que estamos en la BD correcta
 SELECT 
-    'Base de datos ms_yourdashboard_auth creada exitosamente' as resultado,
+    current_database() as base_datos_actual,
+    'Base de datos lista para inicialización' as estado,
     NOW() as timestamp;
+
+-- Ya estamos conectados a ms_yourdashboard_auth gracias a Docker
+-- No es necesario hacer \c ms_yourdashboard_auth
