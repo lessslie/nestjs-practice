@@ -16,7 +16,7 @@ import { WhatsappService } from './whatsapp.service';
 import { WhatsappAccountsService } from './whatsapp-accounts.service';
 
 interface CreateAccountDTO {
-  usuario_principal_id: number;
+  usuario_principal_id: string;
   phone: string;
   nombre_cuenta: string;
   token: string;
@@ -111,7 +111,6 @@ export class WebhookController {
           msgBody,
           new Date(timestamp),
           cuenta.id,
-          'whatsapp',
         );
 
         this.gateway.emitNewMessage({
@@ -151,46 +150,27 @@ export class WebhookController {
         return res.status(404).json({ error: 'Cuenta no encontrada' });
       }
 
-      // 🔍 Validar que tenga phone_number_id y token
-      if (!cuenta.phone_number_id || !cuenta.token) {
-        console.warn(
-          `Cuenta ${cuentaId} no tiene phone_number_id o token válidos`,
-        );
-        return res
-          .status(400)
-          .json({ error: 'La cuenta no tiene phone_number_id o token válido' });
-      }
-
       // 2️⃣ Enviar el mensaje por WhatsApp
       const response = await this.whatsappService.sendMessageWithCuenta(
-        {
-          phone_number_id: cuenta.phone_number_id,
-          token: cuenta.token,
-        },
+        cuenta,
         to,
         message,
       );
 
       // 3️⃣ Buscar el último mensaje no respondido de ese número y cuenta
       const mensajes = await this.conversationsService.getMessageByIdAndAccount(
-        (
-          await this.conversationsService.getRecentConversationsByAccount(cuenta.id)
-        ).find((conv) => conv.phone === to)?.id || '',
+        (await this.conversationsService.getRecentConversationsByAccount(cuenta.id))
+          .find(conv => conv.phone === to)?.id || ''
       );
 
       if (mensajes && mensajes.length > 0) {
+        // Tomamos el último mensaje no respondido
         const ultimoNoRespondido = mensajes
-          .filter((msg) => !msg.respondido)
-          .sort(
-            (a, b) =>
-              (b.timestamp ? new Date(b.timestamp).getTime() : 0) -
-              (a.timestamp ? new Date(a.timestamp).getTime() : 0)
-          )[0];
+          .filter(msg => !msg.respondido)
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
 
         if (ultimoNoRespondido) {
-          await this.conversationsService.markMessageAsResponded(
-            ultimoNoRespondido.id,
-          );
+          await this.conversationsService.markMessageAsResponded(ultimoNoRespondido.id);
         }
       }
 
@@ -200,7 +180,6 @@ export class WebhookController {
       return res.status(500).json({ error: 'No se pudo enviar el mensaje' });
     }
   }
-
 
 
   @Get('/cuentas')
@@ -228,7 +207,7 @@ export class WebhookController {
   @Post('/cuentas/vincular-por-numero')
   async vincularPorNumero(
     @Body()
-    body: { usuario_principal_id: number; phone: string; token?: string },
+    body: { usuario_principal_id: string; phone: string; token?: string },
     @Res() res: Response,
   ) {
     try {

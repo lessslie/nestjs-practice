@@ -5,11 +5,10 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { ConversationsModule } from './controlador-conversaciones/conversations/conversations.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TokenScheduler } from './scheduler/token-refresh.scheduler';
-import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ScheduleModule.forRoot(), PrismaModule],
+  imports: [WhatsappModule, ConversationsModule, ScheduleModule.forRoot()],
   controllers: [AppController],
-  providers: [AppService, TokenScheduler],
+  providers: [AppService, TokenScheduler], 
 })
 export class AppModule {}

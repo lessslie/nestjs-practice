@@ -1,11 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { ConversationRepository } from '../../../repositories/conversation.repository';
+import { MessageRepository } from '../../../repositories/message.repository';
 import { clasificarTiempo } from '../../utils/semaforo';
 
 @Injectable()
 export class ConversationsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private readonly conversationRepo: ConversationRepository,
+    private readonly messageRepo: MessageRepository,
+  ) {}
 
+  // 🔥 Crear o actualizar conversación (upsert)
   async upsertConversation(
     phone: string,
     name: string | null,
@@ -13,168 +18,97 @@ export class ConversationsService {
     date: Date,
     whatsappAccountId: string,
   ): Promise<string> {
-    const existing = await this.prisma.conversations.findFirst({
-      where: { phone, whatsapp_account_id: whatsappAccountId },
-    });
+    const existing = await this.conversationRepo.findByPhoneAndAccount(phone, whatsappAccountId);
 
     if (existing) {
-      await this.prisma.conversations.update({
-        where: { id: existing.id },
-        data: {
-          last_message: message,
-          last_message_date: date,
-          name: name ?? existing.name,
-        },
+      await this.conversationRepo.update(existing.id, {
+        last_message: message,
+        last_message_date: date,
+        name: name ?? existing.name,
       });
       return existing.id;
-    }
-
-    const created = await this.prisma.conversations.create({
-      data: {
+    } else {
+      const newConv = await this.conversationRepo.create({
         phone,
         name,
         last_message: message,
         last_message_date: date,
         whatsapp_account_id: whatsappAccountId,
-      },
-    });
-    return created.id;
+      });
+      return newConv.id;
+    }
   }
 
-  // 🔥 Insertar un mensaje recibido (por defecto respondido = false)
+  // 🔥 Insertar un mensaje recibido (cliente o empresa)
   async insertMessage(
     conversationId: string,
     from: string,
     message: string,
-    date: Date,
+    date: Date | null,
     whatsappAccountId: string,
-    canal: 'whatsapp',
   ) {
-    if (from === 'empresa') {
-      const pending = await this.prisma.messages.findFirst({
-        where: {
-          conversation_id: conversationId,
-          respondido: false,
-          canal,
-        },
-        orderBy: { timestamp: 'desc' },
-      });
+    const canal = 'whatsapp' as const;
 
-      if (pending && pending.timestamp) {
-        const categoria = clasificarTiempo(canal, new Date(pending.timestamp), date);
-        await this.prisma.messages.update({
-          where: { id: pending.id },
-          data: { respondido: true, categoria },
-        });
+    if (from === 'empresa') {
+      // Buscar último mensaje sin responder
+      const pending = await this.messageRepo.getLastUnresponded(conversationId, canal);
+      if (pending) {
+        const categoria = clasificarTiempo(canal, pending.timestamp ?? new Date(), date ?? new Date());
+        await this.messageRepo.markAsResponded(pending.id);
+        pending.categoria = categoria; // opcional si querés usarlo
       }
     }
 
-    await this.prisma.messages.create({
-      data: {
-        conversation_id: conversationId,
-        phone: from,
-        message,
-        timestamp: date,
-        whatsapp_account_id: whatsappAccountId,
-        canal,
-        respondido: from === 'empresa',
-        categoria: null,
-      },
+    return this.messageRepo.insert({
+      conversation_id: conversationId,
+      phone: from,
+      message,
+      timestamp: date ?? new Date(),
+      whatsapp_account_id: whatsappAccountId,
+      canal,
+      respondido: from === 'empresa',
+      categoria: null, // solo se fija en mensajes entrantes
     });
   }
 
-
-  // 🔥 Marcar un mensaje como respondido
+  // 🔥 Marcar mensaje como respondido
   async markMessageAsResponded(messageId: string) {
-    return this.prisma.messages.update({
-      where: { id: messageId },
-      data: { respondido: true },
-    });
+    return this.messageRepo.markAsResponded(messageId);
   }
 
-  // ✅ Traer mensajes de una conversación y recalcular categoría en base a tiempo sin respuesta
+  // ✅ Traer mensajes de una conversación y recalcular categoría
   async getMessageByIdAndAccount(conversationId: string, whatsappAccountId?: string) {
-    const messages = await this.prisma.messages.findMany({
-      where: {
-        conversation_id: conversationId,
-        ...(whatsappAccountId ? { conversation: { whatsapp_account_id: whatsappAccountId } } : {}),
-      },
-      include: { conversations: true },
-      orderBy: { timestamp: 'asc' },
-    });
-
+    const messages = await this.messageRepo.getByConversation(conversationId, whatsappAccountId);
     const now = new Date();
 
     return messages.map((msg) => ({
       ...msg,
-      categoria: msg.respondido
-        ? 'verde'
-        : msg.timestamp
-          ? clasificarTiempo(msg.canal as 'whatsapp', new Date(msg.timestamp), now)
-          : 'rojo',
+      categoria: !msg.respondido
+        ? clasificarTiempo('whatsapp', msg.timestamp ?? new Date(), now)
+        : 'verde',
     }));
   }
 
-  // ✅ Conversaciones recientes
+  // ✅ Conversaciones recientes de un account
   async getRecentConversationsByAccount(whatsappAccountId: string) {
-    return this.prisma.conversations.findMany({
-      where: { whatsapp_account_id: whatsappAccountId },
-      orderBy: { last_message_date: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        last_message: true,
-        last_message_date: true,
-        whatsapp_account_id: true,
-      },
-    });
+    return this.conversationRepo.getRecentByAccount(whatsappAccountId);
   }
 
+  // ✅ Todas las conversaciones recientes
   async getRecentConversations() {
-    return this.prisma.conversations.findMany({
-      orderBy: [
-        { whatsapp_account_id: 'asc' },
-        { last_message_date: 'desc' },
-      ],
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        last_message: true,
-        last_message_date: true,
-        whatsapp_account_id: true,
-      },
-    });
+    return this.conversationRepo.getAllRecent();
   }
 
-  // ✅ Búsqueda: incluye categoría recalculada
+  // ✅ Búsqueda de mensajes por account (con recalculo de categoría)
   async searchMessagesByAccount(queryText: string, whatsappAccountId?: string) {
-    const messages = await this.prisma.messages.findMany({
-      where: {
-        message: { contains: queryText, mode: 'insensitive' },
-        ...(whatsappAccountId ? { conversations: { whatsapp_account_id: whatsappAccountId } } : {}),
-      },
-      include: { conversations: true },
-      orderBy: [
-        { conversations: { whatsapp_account_id: 'asc' } },
-        { timestamp: 'desc' },
-      ],
-    });
-
+    const messages = await this.messageRepo.searchMessagesByAccount(queryText, whatsappAccountId);
     const now = new Date();
-    
+
     return messages.map((msg) => ({
       ...msg,
-      conversation_id: msg.conversations.id,
-      name: msg.conversations.name,
-      phone: msg.conversations.phone,
-      whatsapp_account_id: msg.conversations.whatsapp_account_id,
-      categoria: msg.respondido
-        ? 'verde'
-        : msg.timestamp
-          ? clasificarTiempo(msg.canal as 'whatsapp', new Date(msg.timestamp), now)
-          : 'rojo',
+      categoria: !msg.respondido
+        ? clasificarTiempo('whatsapp', msg.timestamp ?? new Date(), now)
+        : 'verde',
     }));
   }
 }

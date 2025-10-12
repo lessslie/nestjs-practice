@@ -1,0 +1,76 @@
+# ==========================================
+# .dockerignore - Microservicios NestJS
+# ==========================================
+
+# Dependencias (se instalan con npm ci dentro del contenedor)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# Archivos de desarrollo y configuración
+.env
+.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+
+# Control de versiones
+.git/
+.gitignore
+.gitattributes
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Pruebas y coverage
+coverage/
+.nyc_output/
+test/
+*.spec.ts
+*.test.ts
+
+# Docker (no copiar estos archivos al build)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Archivos temporales y build local
+.tmp/
+dist/
+build/
+.next/
+
+# Documentación
+README.md
+docs/
+*.md
+
+# Prisma (el schema SÍ se copia, pero estos NO)
+node_modules/.prisma/
+prisma/migrations/
+*.db
+*.db-journal
+
+# Archivos de sistema
+Thumbs.db
+Desktop.ini
+
+# Backups
+*.bak
+*.backup

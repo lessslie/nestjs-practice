@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from 'src/prisma/prisma.service';
-import axios from 'axios';
+import { WhatsappAccountRepository } from '../../repositories/whatsapp-account.repository';
 import * as dotenv from 'dotenv';
+import axios from 'axios';
 dotenv.config();
 
 interface CreateAccountDTO {
-  usuario_principal_id: number;
+  usuario_principal_id: string;
   phone: string;
   nombre_cuenta: string;
   token: string;
@@ -15,35 +15,27 @@ interface CreateAccountDTO {
 
 @Injectable()
 export class WhatsappAccountsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(private readonly repo: WhatsappAccountRepository) { }
 
   async findAll() {
-    return this.prisma.whatsapp_accounts.findMany();
+    return this.repo.findAll();
   }
 
   async findByPhoneNumberId(phoneNumberId: string) {
-    return this.prisma.whatsapp_accounts.findUnique({
-      where: { phone_number_id: phoneNumberId },
-    });
+    return this.repo.findByPhoneNumberId(phoneNumberId);
   }
 
- async findById(id: string) {
-    return this.prisma.whatsapp_accounts.findUnique({
-      where: { id },
-    });
+  async findById(id: string) {
+    return this.repo.findById(id);
   }
 
   async createAccount(data: CreateAccountDTO) {
-    return this.prisma.whatsapp_accounts.create({
-      data,
-    });
+    return this.repo.create(data);
   }
 
+
   async updateAccount(id: string, update: Partial<CreateAccountDTO>) {
-    return this.prisma.whatsapp_accounts.update({
-      where: { id },
-      data: update,
-    });
+    return this.repo.update(id, update);
   }
 
   async getPhoneNumberIdFromMeta(phone: string, token: string): Promise<string> {
@@ -52,9 +44,11 @@ export class WhatsappAccountsService {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    const normalize = (num: string) => num.replace(/\D/g, '');
-    const phoneNormalized = normalize(phone);
+    // Normalizamos el número ingresado
+    const normalize = (num: string) => num.replace(/\D/g, ''); // deja solo dígitos
 
+    const phoneNormalized = normalize(phone);
+    console.log(data.data)
     const match = data.data.find(
       (num: any) => normalize(num.display_phone_number) === phoneNormalized,
     );
@@ -64,34 +58,24 @@ export class WhatsappAccountsService {
       throw new Error(`No se encontró phone_number_id para el número ${phone}`);
     }
 
-    return match.id;
+    return match.id; // este es el phone_number_id
   }
 
-  async updateTokenAccount(
-    id: string,
-    newToken: string,
-    expiresInSeconds?: number,
-  ) {
-    return this.prisma.whatsapp_accounts.update({
-      where: { id },
-      data: {
-        token: newToken,
-        token_updated_at: new Date(),
-        token_expires_at: expiresInSeconds
-          ? new Date(Date.now() + expiresInSeconds * 1000)
-          : undefined,
-      },
-    });
+  async updateTokenAccount(id: string, newToken: string, expiresInSeconds?: number) {
+    return this.repo.updateToken(id, newToken, expiresInSeconds);
   }
 
   private isDate(value: any): value is Date {
     return value instanceof Date && !isNaN(value.getTime());
   }
 
+  /** Devuelve true si faltan <= daysThreshold días para expirar o ya expiró. */
   shouldRefresh(account: any, daysThreshold = 7): boolean {
     const expiresAtRaw = account.token_expires_at;
-    if (!expiresAtRaw) return true;
-
+    if (!expiresAtRaw) {
+      // Si no tenemos expiración guardada, conviene refrescar para obtenerla.
+      return true;
+    }
     const expiresAt =
       this.isDate(expiresAtRaw) ? expiresAtRaw : new Date(expiresAtRaw);
     const now = new Date();
@@ -100,15 +84,14 @@ export class WhatsappAccountsService {
     return daysLeft <= daysThreshold;
   }
 
+  // 🔹 Renueva un token (siempre que el token anterior aún sea válido o sea long-lived no vencido).
   async refreshToken(id: string) {
     const cuenta = await this.findById(id);
     if (!cuenta) throw new Error(`Cuenta con ID ${id} no encontrada`);
 
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
-    if (!appId || !appSecret) {
-      throw new Error('META_APP_ID o META_APP_SECRET no definidos en .env');
-    }
+    if (!appId || !appSecret) throw new Error('META_APP_ID o META_APP_SECRET no definidos');
 
     const url = `https://graph.facebook.com/v19.0/oauth/access_token`;
     const params = {
@@ -118,32 +101,30 @@ export class WhatsappAccountsService {
       fb_exchange_token: cuenta.token,
     };
 
-    try {
-      const { data } = await axios.get(url, { params });
-      const newToken = data.access_token;
-      const expiresIn = data.expires_in;
+    const { data } = await axios.get(url, { params });
+    const newToken: string = data.access_token;
+    const expiresIn: number | undefined = data.expires_in;
 
-      if (!newToken) throw new Error('No se recibió un nuevo token de Meta');
+    if (!newToken) throw new Error('No se recibió un nuevo token de Meta');
 
-      return await this.updateTokenAccount(id, newToken, expiresIn);
-    } catch (error: any) {
-      throw new Error(
-        `Error refrescando token de cuenta ${id}: ${
-          error.response?.data?.error?.message || error.message
-        }`,
-      );
-    }
+    return this.updateTokenAccount(id, newToken, expiresIn);
   }
 
   async refreshAllDueTokens(daysThreshold = 7) {
+    const accounts = await this.findAll();
     const refreshed: string[] = [];
     const skipped: string[] = [];
     const errors: Record<string, string> = {};
 
-    const accounts = await this.findAll();
     for (const acc of accounts) {
       try {
-        if (this.shouldRefresh(acc, daysThreshold)) {
+        const expira = acc.token_expires_at
+          ? new Date(acc.token_expires_at)
+          : null;
+        const now = new Date();
+        const daysLeft = expira ? (expira.getTime() - now.getTime()) / (1000 * 60 * 60 * 24) : 0;
+
+        if (!expira || daysLeft <= daysThreshold) {
           await this.refreshToken(acc.id);
           refreshed.push(acc.id);
         } else {
