@@ -30,6 +30,9 @@ export class PasswordResetService {
       const token = randomUUID();
       const expiraEn = new Date(Date.now() + 15 * 60 * 1000);
 
+      // CONSOLE.LOG PARA VER TOKEN DE RESSER PARA TEST EMAILS FALSOS:
+         console.log('🔑 TOKEN DE RESET GENERADO:', token);
+
       await this.passwordResetRepository.create({
         usuario_principal_id: user.id,
         email: user.email,

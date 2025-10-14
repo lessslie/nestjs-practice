@@ -82,6 +82,7 @@ export class EmailsController {
       mode: 'microservices'
     };
   }
+  
   // ================================
   // 🔄 ENDPOINTS DE SINCRONIZACIÓN
   // ================================

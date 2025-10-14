@@ -70,7 +70,7 @@ EXPOSE 3001
 
 # Health check mejorado
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3001/health || exit 1
+    CMD curl -f http://localhost:3001/auth/health || exit 1
 
 # Usar tini para mejor manejo de señales
 ENTRYPOINT ["/sbin/tini", "--"]

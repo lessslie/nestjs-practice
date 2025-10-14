@@ -1,6 +1,6 @@
 // src/orchestrator/auth/dto/password-reset.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, Matches } from 'class-validator';
 
 /**
  * 📧 DTO para solicitar recuperación de contraseña
@@ -28,18 +28,24 @@ export class ResetPasswordDto {
 
   @ApiProperty({
     description: 'Nueva contraseña (mínimo 6 caracteres)',
-    example: 'miNuevaPassword123',
+    example:  'NewPass@1',
     minLength: 6,
   })
   @IsString({ message: 'Nueva contraseña requerida' })
-  @MinLength(6, { message: 'La contraseña debe tener al menos 6 caracteres' })
+  @Matches(
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{}|;:,.<>?]).{6,10}$/,
+  {
+    message: 'La contraseña debe tener entre 6 y 10 caracteres, incluir al menos: una minúscula, una mayúscula, un número y un carácter especial'
+  }
+)
   newPassword: string;
 
   @ApiProperty({
     description: 'Confirmación de la nueva contraseña',
-    example: 'miNuevaPassword123',
+    example: 'NewPass@1',
   })
   @IsString({ message: 'Confirmación de contraseña requerida' })
+
   confirmPassword: string;
 }
 

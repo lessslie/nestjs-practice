@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { getMyProfile } from "@/services/auth/auth";
 import { Spin, message, Alert } from "antd";
 
-function AuthCallbackContent() {
+export default function AuthCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { accessToken, setUserProfile } = useAuthStore();
@@ -76,112 +76,101 @@ function AuthCallbackContent() {
           try {
             const updatedProfile = await getMyProfile();
             addDebugInfo(
-              `✅ Perfil recargado exitosamente. Cuentas Gmail: ${updatedProfile?.cuentas_gmail?.length || 0}`
+              `✅ Perfil recargado exitosamente. Cuentas Gmail: ${
+                updatedProfile?.cuentas_gmail?.length || 0
+              }`
             );
 
             setUserProfile(updatedProfile);
-            setCurrentStep("¡Perfil actualizado!");
 
-            message.destroy("oauth-success");
             message.success({
-              content: "¡Cuenta de Google conectada exitosamente!",
-              key: "oauth-final",
+              content: `¡Cuenta ${
+                gmailConnected || "de Google"
+              } conectada exitosamente!`,
+              key: "oauth-success",
               duration: 3,
             });
 
-            addDebugInfo("🎉 Proceso completado - redirigiendo al dashboard");
-            setTimeout(() => {
-              router.push("/dashboard/calendar");
-            }, 1500);
-          } catch (profileError) {
-            console.error("Error recargando perfil:", profileError);
-            addDebugInfo(`❌ Error al recargar perfil: ${profileError}`);
+            addDebugInfo("🎯 Redirigiendo al calendario...");
+            setCurrentStep("Redirigiendo al calendario...");
 
-            message.destroy("oauth-success");
-            message.warning({
+            setTimeout(() => {
+              router.replace("/dashboard/calendar");
+            }, 1000);
+          } catch (profileError) {
+            addDebugInfo(`❌ Error al recargar perfil: ${profileError}`);
+            setCurrentStep("Error al cargar perfil");
+
+            message.error({
               content:
-                "Cuenta conectada pero hubo un problema al actualizar el perfil. Recarga la página.",
-              duration: 5,
+                "Error al cargar la cuenta conectada. Redirigiendo al calendario...",
+              key: "oauth-success",
             });
 
             setTimeout(() => {
               router.push("/dashboard/calendar");
-            }, 3000);
+            }, 2000);
           }
         } else {
-          addDebugInfo("❓ Estado de autenticación desconocido");
-          setCurrentStep("Redirigiendo al dashboard...");
+          addDebugInfo("⚠️ Caso por defecto - redirigiendo al calendario");
+          setCurrentStep("Redirigiendo...");
+
           setTimeout(() => {
             router.push("/dashboard/calendar");
-          }, 1500);
+          }, 1000);
         }
       } catch (error) {
-        console.error("Error en callback:", error);
-        addDebugInfo(`❌ Error general: ${error}`);
-        setCurrentStep("Error procesando callback");
+        addDebugInfo(`❌ Error general en callback: ${error}`);
+        setCurrentStep("Error en el proceso");
 
-        message.error("Error procesando la autenticación");
+        message.error("Error en el proceso de autenticación");
+
         setTimeout(() => {
           router.push("/dashboard/calendar");
         }, 2000);
       }
     };
 
-    handleCallback();
-  }, [accessToken, searchParams, router, setUserProfile]);
+    if (searchParams && accessToken !== undefined) {
+      handleCallback();
+    }
+  }, [searchParams, router, setUserProfile, accessToken]);
 
   return (
-    <div
-      style={{
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-        padding: "20px",
-      }}
-    >
-      <div
-        style={{
-          background: "white",
-          padding: "40px",
-          borderRadius: "12px",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
-          maxWidth: "500px",
-          width: "100%",
-        }}
-      >
-        <Spin size="large" />
-        <h2 style={{ marginTop: "20px", textAlign: "center" }}>
-          {currentStep}
-        </h2>
+    <div className="flex flex-col items-center justify-center min-h-screen p-8">
+      <Spin size="large" />
+      <p className="mt-4 text-lg font-medium">{currentStep}</p>
 
-        {debugInfo.length > 0 && (
+      {/* Panel de debug - solo en desarrollo */}
+      {process.env.NODE_ENV === "development" && debugInfo.length > 0 && (
+        <div className="mt-8 w-full max-w-2xl">
           <Alert
-            message="Debug Info"
+            message="Información de Debug"
             description={
-              <div style={{ maxHeight: "200px", overflow: "auto" }}>
-                {debugInfo.map((info, idx) => (
-                  <div key={idx} style={{ fontSize: "12px", margin: "4px 0" }}>
+              <div className="max-h-64 overflow-y-auto">
+                {debugInfo.map((info, index) => (
+                  <div key={index} className="text-xs font-mono mb-1">
                     {info}
                   </div>
                 ))}
               </div>
             }
             type="info"
-            style={{ marginTop: "20px" }}
+            showIcon
           />
-        )}
-      </div>
-    </div>
-  );
-}
+        </div>
+      )}
 
-export default function AuthCallbackPage() {
-  return (
-    <Suspense fallback={<div style={{ textAlign: 'center', padding: '50px' }}>Loading...</div>}>
-      <AuthCallbackContent />
-    </Suspense>
+      {/* Botón de emergencia */}
+      <button
+        onClick={() => {
+          addDebugInfo("🚨 Botón de emergencia activado");
+          router.push("/dashboard/calendar");
+        }}
+        className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+      >
+        Ir al Calendar (Emergencia)
+      </button>
+    </div>
   );
 }

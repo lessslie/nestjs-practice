@@ -78,7 +78,10 @@ export class AuthController {
   }
 
 
-  
+  @Get('health')
+health() {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+}
   // ================================
   // ENDPOINTS TRADICIONALES
   // ================================

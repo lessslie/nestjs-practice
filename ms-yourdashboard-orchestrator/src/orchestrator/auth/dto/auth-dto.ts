@@ -6,6 +6,7 @@ import {
   MinLength,
   MaxLength,
   IsNotEmpty,
+  Matches,
 } from 'class-validator';
 
 export class RegisterDto {
@@ -20,14 +21,18 @@ export class RegisterDto {
 
   @ApiProperty({
     description: 'Contraseña del usuario',
-    example: 'Clave123',
+    example: 'Pass@123',
     minLength: 6,
-    maxLength: 50,
+    maxLength: 10,
   })
   @IsString({ message: 'Password debe ser un string' })
-  @MinLength(6, { message: 'Password debe tener al menos 6 caracteres' })
-  @MaxLength(50, { message: 'Password no puede tener más de 50 caracteres' })
   @IsNotEmpty({ message: 'Password es requerido' })
+  @Matches(
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{}|;:,.<>?]).{6,10}$/,
+  {
+    message: 'La contraseña debe tener entre 6 y 10 caracteres, incluir al menos: una minúscula, una mayúscula, un número y un carácter especial'
+  }
+)
   password: string;
 
   @ApiProperty({
@@ -55,7 +60,7 @@ export class LoginDto {
 
   @ApiProperty({
     description: 'Contraseña del usuario',
-    example: 'Clave123',
+    example:  'Pass@123',
   })
   @IsString({ message: 'Password debe ser un string' })
   @IsNotEmpty({ message: 'Password es requerido' })

@@ -70,7 +70,7 @@ EXPOSE 3002
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3002/health || exit 1
+    CMD curl -f http://localhost:3002/emails/health || exit 1
 
 # Usar tini para señales
 ENTRYPOINT ["/sbin/tini", "--"]

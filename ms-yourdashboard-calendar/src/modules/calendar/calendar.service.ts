@@ -10,7 +10,7 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { CreateEventRequestBody, GoogleCalendarEvent, safeGetErrorCode, safeGetErrorMessage, ShareCalendarResponse, UnshareCalendarResponse, UpdateEventRequestBody } from './interfaces/calendar-types';
 import { convertAPIToEventMetadata, convertCreateEventToGoogleFormat, convertDBToEventMetadata, convertUpdateEventToGoogleFormat, getSafeEventTitle, isValidCreateEventBody } from './utils/conversion.utils';
 
-// 🎯 INTERFACES PARA CALENDAR SERVICE
+//  INTERFACES PARA CALENDAR SERVICE
 export interface SyncOptions {
   maxEvents?: number;
   timeMin?: string;

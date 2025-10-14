@@ -1,16 +1,8 @@
-"use client";
-
-import { Suspense } from "react";
 import OlvidasteContraseña from "@/components/Auth/OlvidasteContraseña";
+import React from "react";
 
-function ForgotPasswordContent() {
+const ForgotPassword = () => {
   return <OlvidasteContraseña />;
-}
+};
 
-export default function ForgotPasswordPage() {
-  return (
-    <Suspense fallback={<div style={{ textAlign: 'center', padding: '50px' }}>Cargando...</div>}>
-      <ForgotPasswordContent />
-    </Suspense>
-  );
-}
+export default ForgotPassword;
