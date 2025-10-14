@@ -68,7 +68,7 @@ EXPOSE 3005
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:3005/health || exit 1
+    CMD curl -f http://localhost:3005/calendar/health || exit 1
 
 # Usar tini
 ENTRYPOINT ["/sbin/tini", "--"]
