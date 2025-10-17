@@ -1,83 +1,53 @@
-# ==========================================
-# STAGE 1: Dependencies
-# ==========================================
-FROM node:22-alpine AS deps
+# ===============================
+# 🏗️ STAGE 1: BUILD
+# ===============================
+FROM node:20-alpine AS builder
 
-LABEL maintainer="YourDashboard Team"
-LABEL description="Frontend Next.js - YourDashboard"
-LABEL version="2.0"
-
-RUN apk add --no-cache libc6-compat
-
+# Directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
+# Instalar dependencias del sistema (para sharp, si se usa)
+RUN apk add --no-cache libc6-compat
+
+# Copiar archivos de configuración
 COPY package*.json ./
+COPY tsconfig.json* ./
+COPY next.config.js* ./
+COPY postcss.config.js* ./
+COPY tailwind.config.js* ./
 
 # Instalar dependencias
 RUN npm ci
 
-# ==========================================
-# STAGE 2: Builder - Compilación de Next.js
-# ==========================================
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-# Copiar dependencias desde deps
-COPY --from=deps /app/node_modules/ ./node_modules/
-
-# Copiar código fuente
+# Copiar el resto del código fuente
 COPY . .
 
-# Variables de entorno para build (pueden ser sobrescritas)
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-
-# Build de Next.js con standalone output
+# Construir el proyecto Next.js
 RUN npm run build
 
-# ==========================================
-# STAGE 3: Runner - Producción
-# ==========================================
-FROM node:22-alpine AS runner
-
-LABEL maintainer="YourDashboard Team"
-LABEL description="Frontend Next.js Runtime - Standalone optimizado"
-
-# Instalar dependencias mínimas
-RUN apk add --no-cache \
-    curl \
-    tini \
-    libc6-compat
+# ===============================
+# 🚀 STAGE 2: RUNTIME
+# ===============================
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
+# Establecer entorno
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 
-# Crear usuario no-root
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+# Copiar dependencias necesarias del builder
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/next.config.js ./next.config.js
 
-# Copiar archivos públicos y standalone build
-COPY --from=builder /app/public/ ./public/
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/ ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static/ ./.next/static/
-
-# Cambiar a usuario no-root
-USER nextjs
-
-EXPOSE 3000
-
+# Variables de entorno Next.js (sobrescribibles en runtime)
+ENV NEXT_PUBLIC_ORCHESTRATOR_API_URL=${NEXT_PUBLIC_ORCHESTRATOR_API_URL}
 ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:3000/api/health || curl -f http://localhost:3000 || exit 1
+# Exponer puerto
+EXPOSE ${PORT}
 
-# Usar tini
-ENTRYPOINT ["/sbin/tini", "--"]
-
-CMD ["node", "server.js"]
+# Comando por defecto
+CMD ["npm", "run", "start"]
