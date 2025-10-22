@@ -1,6 +1,6 @@
 # ==========================================
 # YOURDASHBOARD - DOCKER COMPOSE
-# Versión actualizada 2025
+# Compatible con nuevos Dockerfiles multi-stage
 # ==========================================
 
 services:
@@ -71,26 +71,30 @@ services:
       context: ./ms-yourdashboard-auth
       dockerfile: Dockerfile
       args:
-        NODE_ENV: ${NODE_ENV:-production}
+        NODE_ENV: production
     container_name: yourdashboard-ms-auth
     restart: unless-stopped
     ports:
       - "3001:3001"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: production
       PORT: 3001
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ms_yourdashboard_auth}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-    env_file:
-      - .env
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - yourdashboard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/auth/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     security_opt:
       - no-new-privileges:true
 
@@ -100,22 +104,26 @@ services:
       context: ./ms-yourdashboard-email
       dockerfile: Dockerfile
       args:
-        NODE_ENV: ${NODE_ENV:-production}
+        NODE_ENV: production
     container_name: yourdashboard-ms-email
     restart: unless-stopped
     ports:
       - "3002:3002"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: production
       PORT: 3002
       DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ms_yourdashboard_auth}
-    env_file:
-      - .env
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - yourdashboard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/email/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     security_opt:
       - no-new-privileges:true
 
@@ -125,17 +133,16 @@ services:
       context: ./ms-yourdashboard-orchestrator
       dockerfile: Dockerfile
       args:
-        NODE_ENV: ${NODE_ENV:-production}
+        NODE_ENV: production
     container_name: yourdashboard-ms-orchestrator
     restart: unless-stopped
     ports:
       - "3003:3003"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: production
       PORT: 3003
       MS_AUTH_URL: http://ms-auth:3001
       MS_EMAIL_URL: http://ms-email:3002
-      # MS_WHATSAPP_URL: http://ms-whatsapp:3004
       FRONTEND_URL: http://frontend:3000
       ORCHESTRATOR_URL: http://localhost:3003
       REDIS_URL: redis://redis:6379
@@ -152,32 +159,13 @@ services:
     networks:
       - yourdashboard-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3003/orchestrator/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     security_opt:
       - no-new-privileges:true
-
-  # # MS-WhatsApp - Integración WhatsApp Business
-  # ms-whatsapp:
-  #   build:
-  #     context: ./ms-yourdashboard-whatsapp
-  #     dockerfile: Dockerfile
-  #     args:
-  #       NODE_ENV: ${NODE_ENV:-production}
-  #   container_name: yourdashboard-ms-whatsapp
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3004:3004"
-  #   environment:
-  #     NODE_ENV: ${NODE_ENV:-production}
-  #     PORT: 3004
-  #   networks:
-  #     - yourdashboard-network
-  #   security_opt:
-  #     - no-new-privileges:true
 
   # ================================
   # FRONTEND
@@ -189,13 +177,14 @@ services:
       context: ./fe-yourdashboard
       dockerfile: Dockerfile
       args:
-        NODE_ENV: ${NODE_ENV:-production}
+        NODE_ENV: production
     container_name: yourdashboard-frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
+      NODE_ENV: production
+      PORT: 3000
       NEXT_PUBLIC_MS_AUTH_URL: http://localhost:3001
       NEXT_PUBLIC_MS_ORCHESTRATOR_URL: http://localhost:3003
     depends_on:

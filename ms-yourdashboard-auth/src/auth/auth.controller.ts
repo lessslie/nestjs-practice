@@ -77,10 +77,16 @@ export class AuthController {
     this.orchestratorUrl = this.configService.get<string>('ORCHESTRATOR_URL') || 'http://localhost:3003';
   }
 
-
-  @Get('health')
+//===========================================
+// ENDPOINT HEALTH
+//===========================================
+@Get('health')
 health() {
-  return { status: 'ok', timestamp: new Date().toISOString() };
+  return { 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    message: ' HOT RELOAD FUNCIONA!'
+  };
 }
   // ================================
   // ENDPOINTS TRADICIONALES

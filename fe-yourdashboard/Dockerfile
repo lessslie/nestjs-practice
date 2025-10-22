@@ -40,7 +40,7 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/next.config.js ./next.config.js
+COPY --from=builder /app/next.config.* ./
 
 # Variables de entorno Next.js (sobrescribibles en runtime)
 ENV NEXT_PUBLIC_ORCHESTRATOR_API_URL=${NEXT_PUBLIC_ORCHESTRATOR_API_URL}

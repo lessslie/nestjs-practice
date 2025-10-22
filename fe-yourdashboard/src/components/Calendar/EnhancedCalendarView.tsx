@@ -2,30 +2,47 @@ import { useState, useEffect, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
-import interactionPlugin from "@fullcalendar/interaction";
+import interactionPlugin, {
+  EventResizeDoneArg,
+} from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 import multiMonthPlugin from "@fullcalendar/multimonth";
 import { Spin, message } from "antd";
-import { CalendarViewProps } from "@/interfaces/interfacesCalendar";
+import {
+  CalendarViewProps,
+  CalendarEvent,
+} from "@/interfaces/interfacesCalendar";
 import dayjs from "dayjs";
 import { useCalendarData } from "./hooks/useCalendarData";
 import { useCalendarEvents } from "./hooks/useCalendarEvents";
 import EventCreateModal from "./EventCreateModal";
 import EventDetailsModal from "./EventDetailsModalNew";
 import { SearchResultsModal } from "./SearchResultsModal";
+import { DateSelectArg, EventClickArg, EventDropArg } from "@fullcalendar/core";
+
+interface EventData {
+  summary: string;
+  description?: string;
+  location?: string;
+  startDateTime: string;
+  endDateTime: string;
+  attendees?: Array<{ email: string }>;
+  isAllDay?: boolean;
+}
 
 const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
   accountId,
   showUnified = false,
-  height = 600,
   initialView = "timeGridWeek",
 }) => {
   const calendarRef = useRef<FullCalendar>(null);
   const [currentDate, setCurrentDate] = useState("");
   const [viewType, setViewType] = useState("Semana");
   const [showViewDropdown, setShowViewDropdown] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | undefined>(
+    undefined
+  );
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
@@ -55,14 +72,8 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
     clearSearch,
   } = useCalendarData(accountId, showUnified);
 
-  const {
-    createEvent,
-    updateEvent,
-    deleteEvent,
-    creating,
-    updating,
-    deleting,
-  } = useCalendarEvents(accountId);
+  const { createEvent, updateEvent, deleteEvent } =
+    useCalendarEvents(accountId);
 
   useEffect(() => {
     if (hasAccount) {
@@ -152,9 +163,11 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
         await searchEvents(term, startDate, 1, 50);
         setLastSearchTerm(term);
         setSearchModalVisible(true);
-      } catch (error) {
-        console.error("Error en búsqueda:", error);
-        message.error("Error al buscar eventos");
+      } catch (err) {
+        console.error("Error en búsqueda:", err);
+        const errorMessage =
+          err instanceof Error ? err.message : "Error desconocido";
+        message.error(`Error al buscar eventos: ${errorMessage}`);
       }
     }
   };
@@ -170,7 +183,7 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
   };
 
   // Función para navegar al evento seleccionado desde la búsqueda
-  const handleEventSelectFromSearch = (event: any) => {
+  const handleEventSelectFromSearch = (event: CalendarEvent) => {
     setSearchModalVisible(false);
     setSearchTerm("");
 
@@ -195,16 +208,16 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
     }
   };
 
-  const handleDateSelect = (selectInfo: any) => {
+  const handleDateSelect = (selectInfo: DateSelectArg) => {
     const startDate = selectInfo.start;
     setSelectedDate(startDate);
     setModalMode("create");
-    setSelectedEvent(null);
+    setSelectedEvent(undefined);
     setCreateModalVisible(true);
   };
 
-  const handleEventClick = (clickInfo: any) => {
-    const event = {
+  const handleEventClick = (clickInfo: EventClickArg) => {
+    const event: CalendarEvent = {
       id: clickInfo.event.id,
       summary: clickInfo.event.title,
       description: clickInfo.event.extendedProps.description,
@@ -213,44 +226,56 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
       endTime: clickInfo.event.end?.toISOString() || "",
       attendees: clickInfo.event.extendedProps.attendees,
       sourceAccount: clickInfo.event.extendedProps.sourceAccount,
-      isAllDay: clickInfo.event.allDay,
+      isAllDay: clickInfo.event.allDay || undefined,
     };
     setSelectedEvent(event);
     setDetailsModalVisible(true);
   };
 
-  const handleEventDrop = async (dropInfo: any) => {
+  const handleEventDrop = async (dropInfo: EventDropArg) => {
     const event = dropInfo.event;
     try {
       await updateEvent(event.id, {
-        startDateTime: event.start.toISOString(),
-        endDateTime: event.end.toISOString(),
+        startDateTime: event.start!.toISOString(),
+        endDateTime: event.end!.toISOString(),
       });
       message.success("Evento movido exitosamente");
       setTimeout(() => refreshEvents(), 300);
-    } catch (error) {
-      message.error("Error al mover el evento");
+    } catch (err) {
+      console.error("Error al mover el evento:", err);
+      const errorMessage =
+        err instanceof Error ? err.message : "Error desconocido";
+      message.error(`Error al mover el evento: ${errorMessage}`);
       dropInfo.revert();
     }
   };
 
-  const handleEventResize = async (resizeInfo: any) => {
+  const handleEventResize = async (resizeInfo: EventResizeDoneArg) => {
     const event = resizeInfo.event;
     try {
       await updateEvent(event.id, {
-        startDateTime: event.start.toISOString(),
-        endDateTime: event.end.toISOString(),
+        startDateTime: event.start!.toISOString(),
+        endDateTime: event.end!.toISOString(),
       });
       message.success("Duración del evento actualizada");
       setTimeout(() => refreshEvents(), 300);
-    } catch (error) {
-      message.error("Error al cambiar la duración del evento");
+    } catch (err) {
+      console.error("Error al redimensionar el evento:", err);
+      const errorMessage =
+        err instanceof Error ? err.message : "Error desconocido";
+      message.error(`Error al cambiar la duración: ${errorMessage}`);
       resizeInfo.revert();
     }
   };
 
-  const handleCreateEvent = async (eventData: any) => {
-    const newEvent = await createEvent(eventData, false);
+  const handleCreateEvent = async (eventData: EventData) => {
+    const attendees = eventData.attendees?.map(({ email }) => email) || [];
+    const eventDataForCreate = {
+      ...eventData,
+      attendees,
+    };
+
+    const newEvent = await createEvent(eventDataForCreate, false);
     if (newEvent) {
       setCreateModalVisible(false);
       message.success("Evento creado exitosamente");
@@ -258,13 +283,17 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
     }
   };
 
-  const handleUpdateEvent = async (eventData: any) => {
+  const handleUpdateEvent = async (eventData: EventData) => {
     if (!selectedEvent) return;
-    const updatedEvent = await updateEvent(selectedEvent.id, eventData);
+    const attendees = eventData.attendees?.map(({ email }) => email) || [];
+    const updatedEvent = await updateEvent(selectedEvent.id, {
+      ...eventData,
+      attendees,
+    });
     if (updatedEvent) {
       setCreateModalVisible(false);
       setDetailsModalVisible(false);
-      setSelectedEvent(null);
+      setSelectedEvent(undefined);
       message.success("Evento actualizado exitosamente");
       setTimeout(() => refreshEvents(), 500);
     }
@@ -275,7 +304,7 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
     const success = await deleteEvent(selectedEvent.id);
     if (success) {
       setDetailsModalVisible(false);
-      setSelectedEvent(null);
+      setSelectedEvent(undefined);
       message.success("Evento eliminado exitosamente");
       setTimeout(() => refreshEvents(), 500);
     }
@@ -290,7 +319,7 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
   const handleCreateButtonClick = () => {
     setSelectedDate(new Date());
     setModalMode("create");
-    setSelectedEvent(null);
+    setSelectedEvent(undefined);
     setCreateModalVisible(true);
   };
 
@@ -299,7 +328,7 @@ const EnhancedCalendarView: React.FC<CalendarViewProps> = ({
     title: event.summary || "Sin título",
     start: event.startTime,
     end: event.endTime,
-    allDay: event.isAllDay,
+    allDay: event.isAllDay || false,
     extendedProps: { ...event },
   }));
 

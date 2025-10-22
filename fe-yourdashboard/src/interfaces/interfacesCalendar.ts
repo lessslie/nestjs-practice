@@ -13,6 +13,8 @@ export interface CalendarEvent {
     email: string;
     displayName?: string;
     responseStatus?: string;
+    organizer?: boolean;
+    status?: string;
   }>;
   isPrivate?: boolean;
   sourceAccount?: string;
@@ -74,11 +76,54 @@ export interface UpdateEventDto {
   url?: string;
 }
 
+// ================================
+// 📊 RESPUESTAS DE OPERACIONES
+// ================================
+
+export interface CreateEventResponse {
+  success: boolean;
+  event: CalendarEvent;
+  message?: string;
+}
+
+export interface UpdateEventResponse {
+  success: boolean;
+  event: CalendarEvent;
+  message?: string;
+}
+
+export interface SyncEventsResponse {
+  success: boolean;
+  stats: {
+    eventsProcessed: number;
+    eventsAdded: number;
+    eventsUpdated: number;
+    eventsDeleted: number;
+  };
+  lastSyncTime: string;
+  message?: string;
+}
+
+export interface AccountInfo {
+  id: number;
+  email: string;
+  name?: string;
+  isActive: boolean;
+  lastSync?: string;
+  eventsCount?: number;
+}
+
 export interface UseCalendarEventsReturn {
-  createEvent: (eventData: CreateEventDto, isPrivate?: boolean) => Promise<any>;
-  updateEvent: (eventId: string, eventData: UpdateEventDto) => Promise<any>;
+  createEvent: (
+    eventData: CreateEventDto,
+    isPrivate?: boolean
+  ) => Promise<CreateEventResponse>;
+  updateEvent: (
+    eventId: string,
+    eventData: UpdateEventDto
+  ) => Promise<UpdateEventResponse>;
   deleteEvent: (eventId: string) => Promise<boolean>;
-  syncEvents: (maxEvents?: number) => Promise<any>;
+  syncEvents: (maxEvents?: number) => Promise<SyncEventsResponse>;
   creating: boolean;
   updating: boolean;
   deleting: boolean;
@@ -110,7 +155,7 @@ export interface UseCalendarDataReturn {
   ) => Promise<void>;
   clearSearch: () => void;
   hasAccount: boolean;
-  accountInfo: any;
+  accountInfo: AccountInfo | null;
   normalEvents: CalendarEvent[];
   normalTotal: number;
   normalLoading: boolean;
@@ -151,7 +196,7 @@ export interface SearchResult extends CalendarEvent {
 }
 
 // ================================
-// 🎨 NUEVAS INTERFACES PARA MODALES - AGREGAR ESTAS
+// 🎨 NUEVAS INTERFACES PARA MODALES
 // ================================
 
 export interface EventFormData {
@@ -356,17 +401,24 @@ export interface SyncOptions {
 // 🎭 RESPUESTAS DE API
 // ================================
 
-export interface CalendarApiResponse<T = any> {
+export interface CalendarApiResponse<T = unknown> {
   success: boolean;
   source: string;
   data: T;
   message?: string;
 }
 
+export interface ErrorDetails {
+  code?: string;
+  field?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
+
 export interface CalendarErrorResponse {
   success: false;
   error: string;
-  details?: any;
+  details?: ErrorDetails;
 }
 
 // ================================

@@ -7,7 +7,6 @@ import {
   Switch,
   Button,
   Select,
-  Space,
   Divider,
   Typography,
 } from "antd";
@@ -98,7 +97,14 @@ export const EventModal: React.FC<EventModalProps> = ({
         dateRange: [dayjs(event.startTime), dayjs(event.endTime)],
         url: url,
       });
-      setAttendeesInput(event.attendees?.map((a) => a.email || a) || []);
+
+      // Extraer emails de los asistentes, manejando tanto strings como objetos
+      const emails =
+        event.attendees
+          ?.map((a) => (typeof a === "string" ? a : a.email))
+          .filter((email): email is string => !!email) || [];
+
+      setAttendeesInput(emails);
       setIsPrivate(event.visibility === "private");
     } else if (visible && mode === "create") {
       form.resetFields();

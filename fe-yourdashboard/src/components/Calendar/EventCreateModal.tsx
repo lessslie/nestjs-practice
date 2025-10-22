@@ -1,12 +1,23 @@
 import { useState, useEffect } from "react";
 import { X, Users, Link2, MapPin, FileText, Calendar } from "lucide-react";
+import { CalendarEvent } from "@/interfaces/interfacesCalendar";
+
+interface EventFormData {
+  summary: string;
+  startDateTime: string;
+  endDateTime: string;
+  location?: string;
+  description?: string;
+  attendees?: Array<{ email: string }>;
+  isAllDay?: boolean;
+}
 
 interface EventCreateModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (eventData: any) => void;
+  onSave: (eventData: EventFormData) => void;
   selectedDate?: Date;
-  event?: any;
+  event?: CalendarEvent;
   mode?: "create" | "edit";
 }
 
@@ -55,7 +66,15 @@ export default function EventCreateModal({
         setAllDay(event.isAllDay || false);
         setLocation(event.location || "");
         setDescription(event.description || "");
-        setAttendees(event.attendees?.join(", ") || "");
+
+        // Convertir attendees al formato string si existe
+        if (event.attendees && Array.isArray(event.attendees)) {
+          const attendeeEmails = event.attendees
+            .map((att) => (typeof att === "string" ? att : att.email || ""))
+            .filter(Boolean);
+          setAttendees(attendeeEmails.join(", "));
+        }
+
         const urlMatch = event.description?.match(/https?:\/\/[^\s]+/);
         if (urlMatch) setMeetingLink(urlMatch[0]);
       } else if (selectedDate) {
@@ -74,18 +93,26 @@ export default function EventCreateModal({
   }, [visible, selectedDate, event, mode]);
 
   const handleSave = () => {
-    const eventData = {
+    const attendeeList = attendees
+      .split(",")
+      .map((email) => email.trim())
+      .filter(Boolean)
+      .map((email) => ({ email }));
+
+    const eventData: EventFormData = {
       summary: title,
       startDateTime: `${startDate}T${startTime}:00`,
       endDateTime: `${startDate}T${endTime}:00`,
-      location,
-      description: meetingLink
-        ? `${description}\n\n🔗 Enlace: ${meetingLink}`
-        : description,
-      attendees: attendees
-        .split(",")
-        .map((email) => email.trim())
-        .filter(Boolean),
+      ...(location && { location }),
+      ...(description || meetingLink
+        ? {
+            description: meetingLink
+              ? `${description}\n\n🔗 Enlace: ${meetingLink}`
+              : description,
+          }
+        : {}),
+      ...(attendeeList.length > 0 && { attendees: attendeeList }),
+      isAllDay: allDay,
     };
     onSave(eventData);
   };
@@ -98,7 +125,7 @@ export default function EventCreateModal({
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
 
-    const days = [];
+    const days: (Date | null)[] = [];
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null);
     }

@@ -12,11 +12,19 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { CalendarEvent } from "@/interfaces/interfacesCalendar";
+
+interface ProcessedAttendee {
+  email: string;
+  displayName?: string | null;
+  status?: string | null;
+  organizer: boolean;
+}
 
 interface EventDetailsModalProps {
   visible: boolean;
   onClose: () => void;
-  event: any;
+  event: CalendarEvent | undefined;
   onEdit: () => void;
   onDelete: () => void;
 }
@@ -64,19 +72,26 @@ export default function EventDetailsModal({
   const attendeesList = event.attendees || [];
 
   // Los attendees pueden ser strings (emails) u objetos
-  const processedAttendees = attendeesList.map((attendee: any) => {
-    if (typeof attendee === "string") {
-      // Si es un string, es solo el email
+  const processedAttendees: ProcessedAttendee[] = attendeesList.map(
+    (attendee) => {
+      if (typeof attendee === "string") {
+        // Si es un string, es solo el email
+        return {
+          email: attendee,
+          displayName: null,
+          status: null,
+          organizer: false,
+        };
+      }
+      // Si es un objeto, usarlo tal cual con valores por defecto
       return {
-        email: attendee,
-        displayName: null,
-        status: null,
-        organizer: false,
+        email: attendee.email || "",
+        displayName: attendee.displayName || null,
+        status: attendee.status || null,
+        organizer: attendee.organizer || false,
       };
     }
-    // Si es un objeto, usarlo tal cual
-    return attendee;
-  });
+  );
 
   return (
     <div className="modal-overlay">
@@ -149,7 +164,7 @@ export default function EventDetailsModal({
 
           {showAttendees && attendeesList.length > 0 && (
             <div className="attendees-list">
-              {processedAttendees.map((attendee: any, index: number) => {
+              {processedAttendees.map((attendee, index) => {
                 const getInitial = () => {
                   if (attendee.displayName && attendee.displayName.length > 0) {
                     return attendee.displayName.charAt(0).toUpperCase();

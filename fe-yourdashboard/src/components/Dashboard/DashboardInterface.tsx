@@ -7,7 +7,6 @@ import {
   CalendarOutlined,
   MessageOutlined,
   UserOutlined,
-  //   ClockCircleOutlined,
 } from "@ant-design/icons";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -19,7 +18,26 @@ import { getUpcomingEvents } from "@/services/calendar/calendarService";
 
 const { Title, Text } = Typography;
 
-// Componente para notificaciones de éxito (no esta funcionando aun, solo es un diseño)
+// Tipos para los datos de respuesta
+interface Email {
+  id: string;
+  subject: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  snippet?: string;
+}
+
+interface CalendarEvent {
+  id: string;
+  summary: string;
+  startTime: string;
+  endTime: string;
+  description?: string;
+  location?: string;
+}
+
+// Componente para notificaciones de éxito
 const SuccessNotification = ({
   type,
   onClose,
@@ -164,15 +182,10 @@ const SuccessNotification = ({
 };
 
 // Componente para la card de Email
-const EmailCard = ({
-  userProfile,
-  onConnect,
-}: {
-  userProfile: any;
-  onConnect: () => void;
-}) => {
+const EmailCard = ({ onConnect }: { onConnect: () => void }) => {
   const router = useRouter();
-  const [recentEmails, setRecentEmails] = useState<any[]>([]);
+  const { userProfile } = useAuthStore();
+  const [recentEmails, setRecentEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(false);
 
   const hasEmailAccounts =
@@ -267,7 +280,6 @@ const EmailCard = ({
                 fontFamily: "Montserrat, sans-serif",
                 fontSize: "16px",
                 fontWeight: 700,
-                fontStyle: "bold",
                 borderRadius: "6px",
               }}
             >
@@ -314,7 +326,7 @@ const EmailCard = ({
             </div>
           ) : recentEmails.length > 0 ? (
             recentEmails.map((email, index) => (
-              <div key={index} className="recent-item">
+              <div key={email.id || index} className="recent-item">
                 <div className="item-meta">
                   <Text
                     style={{
@@ -354,15 +366,10 @@ const EmailCard = ({
 };
 
 // Componente para la card de Calendario
-const CalendarCard = ({
-  userProfile,
-  onConnect,
-}: {
-  userProfile: any;
-  onConnect: () => void;
-}) => {
+const CalendarCard = ({ onConnect }: { onConnect: () => void }) => {
   const router = useRouter();
-  const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
+  const { userProfile } = useAuthStore();
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
 
   const hasCalendarAccounts =
@@ -434,12 +441,7 @@ const CalendarCard = ({
         className="dashboard-card disconnected"
         style={{ height: "300px", cursor: "default" }}
       >
-        <div
-          className="card-content"
-          style={{
-            display: "flex",
-          }}
-        >
+        <div className="card-content" style={{ display: "flex" }}>
           <div className="card-header">
             <CalendarOutlined className="card-icon" />
             <div>
@@ -475,7 +477,6 @@ const CalendarCard = ({
                 fontFamily: "Montserrat, sans-serif",
                 fontSize: "16px",
                 fontWeight: 700,
-                fontStyle: "bold",
                 borderRadius: "6px",
               }}
             >
@@ -522,7 +523,7 @@ const CalendarCard = ({
             </div>
           ) : upcomingEvents.length > 0 ? (
             upcomingEvents.map((event, index) => (
-              <div key={index} className="recent-item">
+              <div key={event.id || index} className="recent-item">
                 <div className="event-date-section">
                   <Text
                     style={{
@@ -574,16 +575,9 @@ const CalendarCard = ({
 
 // Componente para la card de WhatsApp
 const WhatsAppCard = ({ onConnect }: { onConnect: () => void }) => {
-  const router = useRouter();
-
   const handleConnect = () => {
     onConnect();
   };
-
-  //!!! Sin funcionalidad por ahora
-  //const handleCardClick = () => {
-   // router.push("/dashboard/whatsapp");
-  //};
 
   return (
     <Card
@@ -626,7 +620,6 @@ const WhatsAppCard = ({ onConnect }: { onConnect: () => void }) => {
               fontFamily: "Montserrat, sans-serif",
               fontSize: "16px",
               fontWeight: 700,
-              fontStyle: "bold",
               borderRadius: "6px",
             }}
           >
@@ -832,16 +825,10 @@ const DashboardInterface = () => {
           {/* Cards Grid */}
           <Row gutter={[24, 24]}>
             <Col xs={24} lg={12}>
-              <EmailCard
-                userProfile={userProfile}
-                onConnect={() => showNotification("email")}
-              />
+              <EmailCard onConnect={() => showNotification("email")} />
             </Col>
             <Col xs={24} lg={12}>
-              <CalendarCard
-                userProfile={userProfile}
-                onConnect={() => showNotification("calendar")}
-              />
+              <CalendarCard onConnect={() => showNotification("calendar")} />
             </Col>
             <Col xs={24} lg={12}>
               <WhatsAppCard onConnect={() => showNotification("whatsapp")} />

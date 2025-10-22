@@ -18,6 +18,34 @@ dayjs.locale("es");
 const { TabPane } = Tabs;
 const { Text, Paragraph } = Typography;
 
+// Interfaces para los items de búsqueda
+interface EmailSearchItem {
+  id: string;
+  subject: string;
+  fromName: string;
+  fromEmail: string;
+  receivedDate: string;
+  snippet?: string;
+  body?: string;
+}
+
+interface CalendarSearchItem {
+  id: string;
+  summary: string;
+  description?: string;
+  startTime: string;
+  endTime: string;
+  location?: string;
+}
+
+interface WhatsappSearchItem {
+  id: string;
+  from: string;
+  body: string;
+  timestamp: number;
+  chatId?: string;
+}
+
 interface GlobalSearchResultsModalProps {
   visible: boolean;
   loading: boolean;
@@ -34,7 +62,8 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
   onCancel,
 }) => {
   const router = useRouter();
-  const renderEmailItem = (item: any) => (
+
+  const renderEmailItem = (item: EmailSearchItem) => (
     <List.Item>
       <List.Item.Meta
         title={<Text>{item.subject}</Text>}
@@ -60,7 +89,7 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
     </List.Item>
   );
 
-  const renderCalendarItem = (item: any) => (
+  const renderCalendarItem = (item: CalendarSearchItem) => (
     <List.Item>
       <List.Item.Meta
         title={<Text>{item.summary}</Text>}
@@ -79,7 +108,7 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
     </List.Item>
   );
 
-  const renderWhatsappItem = (item: any) => (
+  const renderWhatsappItem = (item: WhatsappSearchItem) => (
     <List.Item>
       <List.Item.Meta
         title={<Text>Mensaje de: {item.from}</Text>}
@@ -95,9 +124,9 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
     </List.Item>
   );
 
-  const renderTabContent = (
+  const renderTabContent = <T,>(
     key: keyof IGlobalSearchData,
-    renderItem: (item: any) => React.ReactNode
+    renderItem: (item: T) => React.ReactNode
   ) => {
     if (loading) {
       return (
@@ -119,7 +148,7 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
 
     return (
       <List
-        dataSource={data.results}
+        dataSource={data.results as T[]}
         renderItem={renderItem}
         pagination={{
           pageSize: 5,
@@ -135,7 +164,7 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
       title={
         <div className="flex items-center">
           <SearchOutlined className="mr-2" />
-          Resultados de la búsqueda para "{searchTerm}"
+          Resultados de la búsqueda para {searchTerm}
         </div>
       }
       open={visible}
@@ -162,7 +191,7 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
             }
             key="emails"
           >
-            {renderTabContent("emails", renderEmailItem)}
+            {renderTabContent<EmailSearchItem>("emails", renderEmailItem)}
           </TabPane>
           <TabPane
             tab={
@@ -176,7 +205,10 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
             }
             key="calendar"
           >
-            {renderTabContent("calendar", renderCalendarItem)}
+            {renderTabContent<CalendarSearchItem>(
+              "calendar",
+              renderCalendarItem
+            )}
           </TabPane>
           <TabPane
             tab={
@@ -190,7 +222,10 @@ const GlobalSearchResultsModal: React.FC<GlobalSearchResultsModalProps> = ({
             }
             key="whatsapp"
           >
-            {renderTabContent("whatsapp", renderWhatsappItem)}
+            {renderTabContent<WhatsappSearchItem>(
+              "whatsapp",
+              renderWhatsappItem
+            )}
           </TabPane>
         </Tabs>
       )}
