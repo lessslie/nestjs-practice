@@ -78,7 +78,9 @@ export interface UpdateEventRequestBody {
 // ================================
 
 export interface CalendarEventMetadata {
+  cuenta_gmail_id: string;
   id: string;
+  google_event_id: string;
   summary: string;
   location?: string;
   description?: string;

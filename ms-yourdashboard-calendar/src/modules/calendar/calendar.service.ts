@@ -1,3 +1,265 @@
+// IMPLEMENTACIÓN DE PRISMA PRUEBA NO TERMINADA CON ERRORES
+
+// import { Injectable, Logger } from '@nestjs/common';
+// import { google, calendar_v3 } from 'googleapis';
+// import { EventSyncRepository } from '../../core/database/repositories/event-sync.repository';
+// import { EventStatsRepository } from '../../core/database/repositories/event-stats.repository';
+// import { EventSearchRepository } from '../../core/database/repositories/event-search.repository';
+// import { GmailAccountRepository } from '../../core/database/repositories/gmail-account.repository';
+// import { TokenRepository } from '../../core/database/repositories/token.repository';
+// import { UserGmailAccountsRepository } from '../../core/database/repositories/user-gmail-accounts.repository';
+// import { HealthRepository } from '../../core/database/repositories/health.repository';
+
+// // import type { GoogleCalendarEvent } from '../calendar/interfaces/calendar-types';
+// import type {
+//   CalendarEventMetadata,
+//   EventSearchFilters,
+//   EventSearchResult,
+//   SyncResult,
+//   CreateEventDto,
+//   UpdateEventDto
+// } from '../calendar/types/prisma-calendar.types';
+
+// import { 
+//   convertCreateEventToGoogleFormat, 
+//   convertUpdateEventToGoogleFormat 
+// } from '../calendar/utils/conversion-prisma.utils';
+
+// import { safeGetErrorMessage, safeGetErrorCode } from '../calendar/interfaces/calendar-types';
+
+// @Injectable()
+// export class CalendarService {
+//   private readonly logger = new Logger(CalendarService.name);
+
+//   constructor(
+//     private readonly eventSyncRepo: EventSyncRepository,
+//     private readonly eventStatsRepo: EventStatsRepository,
+//     private readonly eventSearchRepo: EventSearchRepository,
+//     private readonly gmailAccountRepo: GmailAccountRepository,
+//     private readonly tokenRepo: TokenRepository,
+//     private readonly userAccountsRepo: UserGmailAccountsRepository,
+//     private readonly healthRepo: HealthRepository,
+//   ) {}
+
+//   // ===============================
+//   // 🔑 TOKEN CON AUTO-REFRESH
+//   // ===============================
+//   async getValidTokenForAccount(cuentaGmailId: string): Promise<string> {
+//     try {
+//       this.logger.log(`🔑 Obteniendo token para cuenta Gmail ${cuentaGmailId}`);
+//       return this.tokenRepo.getValidToken(cuentaGmailId);
+//     } catch (error: unknown) {
+//       const msg = safeGetErrorMessage(error);
+//       this.logger.error(`❌ Error obteniendo token para cuenta ${cuentaGmailId}: ${msg}`);
+//       throw new Error(`No se pudo obtener token para cuenta Gmail ${cuentaGmailId}: ${msg}`);
+//     }
+//   }
+
+//   // ===============================
+//   // 🔄 FUNCION PRIVADA: MAPEAR GOOGLE EVENT → PRISMA
+//   // ===============================
+
+// private mapGoogleEventToMetadata(
+//   event: calendar_v3.Schema$Event,
+//   cuentaGmailId: string
+// ): CalendarEventMetadata {
+//   return {
+//     cuenta_gmail_id: cuentaGmailId,
+//     id: event.id || '',                     // si es null, lo convierte en ''
+//     google_event_id: event.id || '',
+//     summary: event.summary || '',
+//     location: event.location ?? undefined,
+//     description: event.description ?? undefined,
+//     startTime: event.start?.dateTime ? new Date(event.start.dateTime) : new Date(),
+//     endTime: event.end?.dateTime ? new Date(event.end.dateTime) : new Date(),
+//     attendees: event.attendees?.map(a => a.email!).filter(Boolean) || [],
+//     isAllDay: false,
+//     status: event.status || 'confirmed',
+//     sourceAccount: cuentaGmailId,
+//     sourceAccountId: cuentaGmailId,
+//   };
+// }
+
+
+//   // ===============================
+//   // 🤝 COMPARTIR CALENDARIO
+//   // ===============================
+//   async shareCalendarWithToken(
+//     cuentaGmailId: string,
+//     calendarId: string,
+//     userEmail: string,
+//     role: 'reader' | 'writer' | 'owner',
+//   ): Promise<any> {
+//     try {
+//       if (!cuentaGmailId?.trim()) throw new Error('cuentaGmailId inválido');
+
+//       const accessToken = await this.getValidTokenForAccount(cuentaGmailId);
+//       const oauth2Client = new google.auth.OAuth2();
+//       oauth2Client.setCredentials({ access_token: accessToken });
+//       const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+//       const response = await calendar.acl.insert({
+//         calendarId,
+//         requestBody: { role, scope: { type: 'user', value: userEmail } },
+//       });
+
+//       const aclData = response.data;
+//       if (!aclData?.id) throw new Error('Regla ACL inválida');
+
+//       this.logger.log(`✅ Calendario compartido con ${userEmail}`);
+//       return {
+//         success: true,
+//         message: 'Calendar compartido exitosamente',
+//         shared_with: userEmail,
+//         role: aclData.role || role,
+//         calendar_id: calendarId,
+//       };
+//     } catch (error: unknown) {
+//       const code = safeGetErrorCode(error);
+//       const msg = safeGetErrorMessage(error);
+//       if (code === 400) throw new Error(`Error de validación: ${msg}`);
+//       if (code === 403) throw new Error('No tienes permisos para compartir este calendario');
+//       if (code === 401) throw new Error('Token inválido o expirado');
+//       throw new Error(`Error compartiendo calendario: ${msg}`);
+//     }
+//   }
+
+//   // ===============================
+//   // 📊 OBTENER ESTADÍSTICAS
+//   // ===============================
+//   async getCalendarStatsWithToken(cuentaGmailId: string): Promise<any> {
+//     if (!cuentaGmailId?.trim()) throw new Error('cuentaGmailId inválido');
+//     try {
+//       const stats = await this.eventStatsRepo.getStats(cuentaGmailId);
+//       return {
+//         totalEvents: stats.total_events,
+//         upcomingEvents: stats.upcoming_events,
+//         pastEvents: stats.past_events,
+//       };
+//     } catch (error: unknown) {
+//       const msg = safeGetErrorMessage(error);
+//       this.logger.error(`❌ Error obteniendo estadísticas: ${msg}`);
+//       throw new Error('Error al obtener estadísticas de Calendar');
+//     }
+//   }
+
+//   // ===============================
+//   // 🔄 SINCRONIZACIÓN DE EVENTOS
+//   // ===============================
+//   async syncEventsWithToken(cuentaGmailId: string, options: { timeMin?: Date; timeMax?: Date; maxEvents?: number } = {}): Promise<SyncResult> {
+//     if (!cuentaGmailId?.trim()) throw new Error('cuentaGmailId inválido');
+
+//     const accessToken = await this.getValidTokenForAccount(cuentaGmailId);
+//     const oauth2Client = new google.auth.OAuth2();
+//     oauth2Client.setCredentials({ access_token: accessToken });
+//     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+//     const timeMin = options.timeMin?.toISOString() || new Date().toISOString();
+//     const timeMax = options.timeMax?.toISOString();
+//     const maxResults = Math.min(options.maxEvents || 100, 250);
+
+//     const response = await calendar.events.list({
+//       calendarId: 'primary',
+//       timeMin,
+//       timeMax,
+//       maxResults,
+//       singleEvents: true,
+//       orderBy: 'startTime',
+//     });
+
+//     const events = response.data.items || [];
+//     const eventsMetadata = events.map(e => this.mapGoogleEventToMetadata(e, cuentaGmailId));
+
+//     const existingIds = (await this.eventSyncRepo.findPaginated(cuentaGmailId, 1, 1000))
+//       .events.map(e => e.google_event_id);
+
+//     const newEvents = eventsMetadata.filter(e => !existingIds.includes(e.google_event_id));
+//     const updatedEvents = eventsMetadata.filter(e => existingIds.includes(e.google_event_id));
+
+//     const startTime = Date.now();
+//     if (newEvents.length) await this.eventSyncRepo.upsertMany(newEvents as any);
+//     if (updatedEvents.length) await this.eventSyncRepo.upsertMany(updatedEvents as any);
+//     const tiempo = Date.now() - startTime;
+
+//     return {
+//       events_nuevos: newEvents.length,
+//       events_actualizados: updatedEvents.length,
+//       total_procesados: events.length,
+//       tiempo_ms: tiempo,
+//     };
+//   }
+
+//   // ===============================
+//   // 💾 CREAR / ACTUALIZAR / ELIMINAR EVENTOS
+//   // ===============================
+//   async createEvent(eventBody: CreateEventDto, cuentaGmailId: string) {
+//     const accessToken = await this.getValidTokenForAccount(cuentaGmailId);
+//     const oauth2Client = new google.auth.OAuth2();
+//     oauth2Client.setCredentials({ access_token: accessToken });
+//     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+//     const googleEvent = convertCreateEventToGoogleFormat(eventBody);
+//     const createdEvent = await calendar.events.insert({ calendarId: 'primary', requestBody: googleEvent });
+
+//     await this.saveEventToDB(createdEvent.data, cuentaGmailId);
+
+//     return this.mapGoogleEventToMetadata(createdEvent.data, cuentaGmailId);
+//   }
+
+//   async updateEvent(eventId: string, eventBody: UpdateEventDto, cuentaGmailId: string) {
+//     const accessToken = await this.getValidTokenForAccount(cuentaGmailId);
+//     const oauth2Client = new google.auth.OAuth2();
+//     oauth2Client.setCredentials({ access_token: accessToken });
+//     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+//     const googleEvent = convertUpdateEventToGoogleFormat(eventBody);
+//     const updatedEvent = await calendar.events.update({ calendarId: 'primary', eventId, requestBody: googleEvent });
+
+//     await this.saveEventToDB(updatedEvent.data, cuentaGmailId);
+
+//     return this.mapGoogleEventToMetadata(updatedEvent.data, cuentaGmailId);
+//   }
+
+//   async deleteEvent(eventId: string) {
+//   await this.eventSyncRepo.delete({
+//     where: { google_event_id: eventId },
+//   });
+//   this.logger.log(`🗑️ Evento ${eventId} eliminado de BD`);
+// }
+
+//   async saveEventToDB(event: calendar_v3.Schema$Event, cuentaGmailId: string) {
+//   if (!event.id) return;
+//   await this.eventSyncRepo.upsertMany([this.mapGoogleEventToMetadata(event, cuentaGmailId)] as any);
+//   this.logger.log(`💾 Evento ${event.id} guardado en BD`);
+// }
+
+//   // ===============================
+//   // 🔍 BÚSQUEDA DE EVENTOS Y CUENTAS
+//   // ===============================
+//   async searchEvents(filters: EventSearchFilters): Promise<EventSearchResult[]> {
+//     const events = await this.eventSearchRepo.search(filters);
+//     return events.map(e => ({
+//       cuenta_gmail_id: e.cuenta_gmail_id,
+//       id: e.id,
+//       google_event_id: e.google_event_id,
+//       summary: e.summary,
+//       location: e.location,
+//       description: e.description,
+//       start_time: e.start_time,
+//       end_time: e.end_time,
+//       attendees: e.attendees,
+//       fecha_sincronizado: e.fecha_sincronizado,
+//     }));
+//   }
+
+//   async obtenerCuentasGmailUsuario(userId: string) {
+//     return this.userAccountsRepo.findByUser(userId);
+//   }
+// }
+
+
+
+
 import { Injectable, Logger } from '@nestjs/common';
 import { google, calendar_v3 } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
@@ -6,11 +268,12 @@ import {
   EventMetadataDB, 
   EventSearchFilters 
 } from '../../core/database/database.service';
+
 import { CreateEventDto } from './dto/create-event.dto';
 import { CreateEventRequestBody, GoogleCalendarEvent, safeGetErrorCode, safeGetErrorMessage, ShareCalendarResponse, UnshareCalendarResponse, UpdateEventRequestBody } from './interfaces/calendar-types';
 import { convertAPIToEventMetadata, convertCreateEventToGoogleFormat, convertDBToEventMetadata, convertUpdateEventToGoogleFormat, getSafeEventTitle, isValidCreateEventBody } from './utils/conversion.utils';
 
-//  INTERFACES PARA CALENDAR SERVICE
+// 🎯 INTERFACES PARA CALENDAR SERVICE
 export interface SyncOptions {
   maxEvents?: number;
   timeMin?: string;
