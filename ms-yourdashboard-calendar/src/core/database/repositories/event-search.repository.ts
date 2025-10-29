@@ -47,19 +47,19 @@ export class EventSearchRepository {
       const where: Prisma.events_sincronizadosWhereInput = {};
 
       // 📧 Filtro por cuenta Gmail
-      if (filters.cuenta_gmail_id) {
-        where.cuenta_gmail_id = filters.cuenta_gmail_id;
-      }
+     if (filters.cuenta_gmail_id) {
+  (where as Record<string, unknown>).cuenta_gmail_id = filters.cuenta_gmail_id;
+}
 
       // 🔤 Filtro por texto (busca en summary, location, description)
       if (filters.search_text) {
         const searchText = filters.search_text.trim();
         
-        where.OR = [
-          { 
-            summary: { 
-              contains: searchText, 
-              mode: 'insensitive' 
+      (where as Record<string, unknown>).OR = [
+  { 
+    summary: { 
+      contains: searchText, 
+      mode: 'insensitive'  
             } 
           },
           { 
@@ -78,31 +78,27 @@ export class EventSearchRepository {
       }
 
       // 📅 Filtro por fecha de inicio
-      if (filters.start_date) {
-        where.start_time = { 
-          gte: filters.start_date 
-        };
-      }
+     if (filters.start_date) {
+  (where as Record<string, unknown>).start_time = { gte: filters.start_date };
+}
 
       // 📅 Filtro por fecha de fin
-      if (filters.end_date) {
-        where.end_time = { 
-          lte: filters.end_date 
-        };
-      }
+    if (filters.end_date) {
+  (where as Record<string, unknown>).end_time = { lte: filters.end_date };
+}
 
       // Ejecutar búsqueda
-      const events = await this.prisma.events_sincronizados.findMany({
+      const events: events_sincronizados[] = await this.prisma.events_sincronizados.findMany({
         where,
         orderBy: { start_time: 'asc' },
       });
 
       this.logger.log(`🔍 Búsqueda ejecutada: ${events.length} eventos encontrados`);
 
-      return {
-        events: events.map(this.mapToEventMetadataDB),
-        total: events.length,
-      };
+    return {
+  events: events.map((event) => this.mapToEventMetadataDB(event)),
+  total: events.length,
+};
     } catch (error) {
       this.logger.error('❌ Error en búsqueda de eventos:', error);
       throw error;
@@ -134,14 +130,14 @@ export class EventSearchRepository {
 
       // 📧 Filtro por cuenta Gmail
       if (filters.cuenta_gmail_id) {
-        where.cuenta_gmail_id = filters.cuenta_gmail_id;
+        (where as Record<string, unknown>).cuenta_gmail_id = filters.cuenta_gmail_id;
       }
 
       // 🔤 Filtro por texto
       if (filters.search_text) {
         const searchText = filters.search_text.trim();
         
-        where.OR = [
+        (where as Record<string, unknown>).OR= [
           { summary: { contains: searchText, mode: 'insensitive' } },
           { location: { contains: searchText, mode: 'insensitive' } },
           { description: { contains: searchText, mode: 'insensitive' } },
@@ -150,15 +146,15 @@ export class EventSearchRepository {
 
       // 📅 Filtros por fechas
       if (filters.start_date) {
-        where.start_time = { gte: filters.start_date };
+        (where as Record<string, unknown>).start_time = { gte: filters.start_date };
       }
 
       if (filters.end_date) {
-        where.end_time = { lte: filters.end_date };
+        (where as Record<string, unknown>).end_time = { lte: filters.end_date };
       }
 
       // Ejecutar query con paginación
-      const [events, total] = await Promise.all([
+      const [events, total]: [events_sincronizados[], number] = await Promise.all([
         this.prisma.events_sincronizados.findMany({
           where,
           orderBy: { start_time: 'asc' },
@@ -242,19 +238,18 @@ export class EventSearchRepository {
    * 
    * @private
    */
-  private mapToEventMetadataDB(event: events_sincronizados): EventMetadataDB {
-    return {
-      id: event.id,
-      cuenta_gmail_id: event.cuenta_gmail_id || '', // ✅ Convertir null a string vacío
-      google_event_id: event.google_event_id,
-      summary: event.summary || undefined,
-      location: event.location || undefined,
-      description: event.description || undefined,
-      start_time: event.start_time || undefined,
-      end_time: event.end_time || undefined,
-      attendees: event.attendees || undefined,
-      // ❌ REMOVIDOS: created_at y updated_at no existen en la tabla
-      fecha_sincronizado: event.fecha_sincronizado || undefined,
-    };
+ private mapToEventMetadataDB(event: events_sincronizados): EventMetadataDB {
+  return {
+    id: event.id ?? '',
+    cuenta_gmail_id: event.cuenta_gmail_id ?? '',
+    google_event_id: event.google_event_id ?? '',
+    summary: event.summary ?? undefined,
+    location: event.location ?? undefined,
+    description: event.description ?? undefined,
+    start_time: event.start_time ?? undefined,
+    end_time: event.end_time ?? undefined,
+    attendees: event.attendees ?? undefined,
+    fecha_sincronizado: event.fecha_sincronizado ?? undefined,
+  };
   }
 }
