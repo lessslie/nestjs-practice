@@ -17,6 +17,8 @@ import axios from 'axios';
 import { UserRepository } from '../database/repositories/user.repository';
 import { SessionRepository } from '../database/repositories/session.repository';
 import { GmailAccountRepository } from '../database/repositories/gmail-account.repository';
+import { EventStatsRepository } from '../database/repositories/event-stats.repository';
+import { EmailStatsRepository } from 'src/database/repositories/email-stats.repository';
 import { usuarios_principales } from 'generated/prisma';
 
 /**
@@ -35,7 +37,9 @@ export class AuthService {
     private readonly userRepository: UserRepository,
     private readonly sessionRepository: SessionRepository,
     private readonly gmailAccountRepository: GmailAccountRepository,
-    private readonly configService: ConfigService
+    private readonly eventStatsRepository: EventStatsRepository,
+    private readonly emailStatsRepository: EmailStatsRepository,
+    private readonly configService: ConfigService,
   ) {}
 
   // ================================
@@ -71,7 +75,6 @@ export class AuthService {
       const token = this.generarJWT(nuevoUsuario as UsuarioPrincipal);
 
       // 5️⃣ Crear sesión JWT
-      // ✅ FIX ERROR 1: Ya no se necesita calcular expira_en, el repository lo hace
       const sesion = await this.sessionRepository.create({
         usuario_principal_id: nuevoUsuario.id,
         jwt_token: token,
@@ -158,7 +161,6 @@ export class AuthService {
       const token = this.generarJWT(usuario as UsuarioPrincipal);
 
       // 5️⃣ Crear nueva sesión
-      // ✅ FIX ERROR 2: Ya no se necesita calcular expira_en, el repository lo hace
       const sesion = await this.sessionRepository.create({
         usuario_principal_id: usuario.id,
         jwt_token: token,
@@ -189,7 +191,6 @@ export class AuthService {
         },
         token,
         sesion_id: sesion.id,
-        // 🆕 DATOS COMPLETOS DEL PERFIL (igual que /auth/me)
         cuentas_gmail: perfilCompleto.cuentas_gmail.map(cuenta => ({
           ...cuenta,
           alias_personalizado: cuenta.alias_personalizado || null,
@@ -217,273 +218,216 @@ export class AuthService {
       });
     }
   }
-// ================================
-// 🆕 GOOGLE OAUTH - REGISTER
-// ================================
 
-/**
- * Registrar nuevo usuario con Google OAuth
- * 
- * ¿CUÁNDO SE USA? Cuando el usuario hace clic en "Registrarse con Google"
- * 
- * ¿QUÉ HACE?
- * 1. Verifica si el email ya existe
- *    - Si existe → Auto-vincular y loguear (mejor UX)
- * 2. Si no existe → Crear usuario nuevo con Google
- * 3. Generar JWT
- * 4. Crear sesión
- */
-async registrarUsuarioConGoogle(
-  googleId: string,
-  email: string,
-  nombre: string
-): Promise<{
-  success: boolean;
-  message: string;
-  usuario: UsuarioPrincipal;
-  token: string;
-  isNewUser: boolean;
-}> {
-  try {
-    this.logger.log(`🔵 Registrando usuario con Google: ${email}`);
+  // ================================
+  // 🆕 GOOGLE OAUTH - REGISTER
+  // ================================
 
-    // 1️⃣ VERIFICAR SI EL EMAIL YA EXISTE
-    const usuarioExistente = await this.userRepository.findByEmail(email);
+  async registrarUsuarioConGoogle(
+    googleId: string,
+    email: string,
+    nombre: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    usuario: UsuarioPrincipal;
+    token: string;
+    isNewUser: boolean;
+  }> {
+    try {
+      this.logger.log(`🔵 Registrando usuario con Google: ${email}`);
 
-    if (usuarioExistente) {
-      this.logger.log(`🔗 Email ${email} ya existe - auto-vinculando con Google`);
-      
-      // AUTO-VINCULAR: Agregar google_id al usuario existente
-      const usuarioVinculado = await this.vincularGoogleAUsuarioExistente(
-        usuarioExistente,
-        googleId
-      );
+      const usuarioExistente = await this.userRepository.findByEmail(email);
 
-      // Generar JWT para el usuario vinculado
-      const token = this.generarJWT(usuarioVinculado as UsuarioPrincipal);
+      if (usuarioExistente) {
+        this.logger.log(`🔗 Email ${email} ya existe - auto-vinculando con Google`);
+        
+        const usuarioVinculado = await this.vincularGoogleAUsuarioExistente(
+          usuarioExistente,
+          googleId
+        );
 
-      // Crear sesión
+        const token = this.generarJWT(usuarioVinculado as UsuarioPrincipal);
+
+        await this.sessionRepository.create({
+          usuario_principal_id: usuarioVinculado.id,
+          jwt_token: token,
+          duracion_horas: 24
+        });
+
+        this.logger.log(`✅ Usuario vinculado y logueado: ${email}`);
+
+        return {
+          success: true,
+          message: 'Cuenta vinculada exitosamente. Ahora puedes usar Google o email/password para entrar.',
+          usuario: usuarioVinculado as UsuarioPrincipal,
+          token,
+          isNewUser: false
+        };
+      }
+
+      this.logger.log(`➕ Creando nuevo usuario con Google: ${email}`);
+
+      const nuevoUsuario = await this.userRepository.createWithGoogle({
+        email,
+        nombre,
+        google_id: googleId
+      });
+
+      const token = this.generarJWT(nuevoUsuario as UsuarioPrincipal);
+
       await this.sessionRepository.create({
-        usuario_principal_id: usuarioVinculado.id,
+        usuario_principal_id: nuevoUsuario.id,
         jwt_token: token,
         duracion_horas: 24
       });
 
-      this.logger.log(`✅ Usuario vinculado y logueado: ${email}`);
+      this.logger.log(`✅ Usuario registrado con Google exitosamente: ${email}`);
 
       return {
         success: true,
-        message: 'Cuenta vinculada exitosamente. Ahora puedes usar Google o email/password para entrar.',
-        usuario: usuarioVinculado as UsuarioPrincipal,
+        message: 'Usuario registrado con Google exitosamente',
+        usuario: nuevoUsuario as UsuarioPrincipal,
         token,
-        isNewUser: false // ← No es nuevo, ya existía
+        isNewUser: true
       };
+
+    } catch (error) {
+      this.logger.error(`❌ Error registrando usuario con Google:`, error);
+      throw new ConflictException({
+        codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
+        mensaje: 'Error interno al registrar usuario con Google'
+      });
     }
-
-    // 2️⃣ CREAR USUARIO NUEVO CON GOOGLE
-    this.logger.log(`➕ Creando nuevo usuario con Google: ${email}`);
-
-    const nuevoUsuario = await this.userRepository.createWithGoogle({
-      email,
-      nombre,
-      google_id: googleId
-    });
-
-    // 3️⃣ GENERAR JWT
-    const token = this.generarJWT(nuevoUsuario as UsuarioPrincipal);
-
-    // 4️⃣ CREAR SESIÓN
-    await this.sessionRepository.create({
-      usuario_principal_id: nuevoUsuario.id,
-      jwt_token: token,
-      duracion_horas: 24
-    });
-
-    this.logger.log(`✅ Usuario registrado con Google exitosamente: ${email}`);
-
-    return {
-      success: true,
-      message: 'Usuario registrado con Google exitosamente',
-      usuario: nuevoUsuario as UsuarioPrincipal,
-      token,
-      isNewUser: true // ← Es usuario nuevo
-    };
-
-  } catch (error) {
-    this.logger.error(`❌ Error registrando usuario con Google:`, error);
-    throw new ConflictException({
-      codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
-      mensaje: 'Error interno al registrar usuario con Google'
-    });
   }
-}
 
-// ================================
-// 🆕 GOOGLE OAUTH - LOGIN
-// ================================
+  // ================================
+  // 🆕 GOOGLE OAUTH - LOGIN
+  // ================================
 
-/**
- * Login de usuario con Google OAuth
- * 
- * ¿CUÁNDO SE USA? Cuando el usuario hace clic en "Iniciar sesión con Google"
- * 
- * ¿QUÉ HACE?
- * 1. Busca usuario por google_id O email
- * 2. Si no existe → Error (debe registrarse primero)
- * 3. Si existe → Generar JWT y loguear
- */
-async loginUsuarioConGoogle(
-  googleId: string,
-  email: string,
-  // nombre: string   no se usa al iniciar con  google
-): Promise<{
-  success: boolean;
-  message: string;
-  usuario: UsuarioPrincipal;
-  token: string;
-  cuentas_gmail: any[];
-  sesiones_activas: any[];
-  estadisticas: any;
-}> {
-  try {
-    this.logger.log(`🔵 Login con Google: ${email}`);
+  async loginUsuarioConGoogle(
+    googleId: string,
+    email: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    usuario: UsuarioPrincipal;
+    token: string;
+    cuentas_gmail: any[];
+    sesiones_activas: any[];
+    estadisticas: any;
+  }> {
+    try {
+      this.logger.log(`🔵 Login con Google: ${email}`);
 
-    // 1️⃣ BUSCAR USUARIO POR GOOGLE_ID (prioridad)
-    let usuario = await this.userRepository.findByGoogleId(googleId);
+      let usuario = await this.userRepository.findByGoogleId(googleId);
 
-    // 2️⃣ SI NO EXISTE POR GOOGLE_ID, BUSCAR POR EMAIL
-    if (!usuario) {
-      this.logger.log(`🔍 No encontrado por google_id, buscando por email: ${email}`);
-      usuario = await this.userRepository.findByEmail(email);
+      if (!usuario) {
+        this.logger.log(`🔍 No encontrado por google_id, buscando por email: ${email}`);
+        usuario = await this.userRepository.findByEmail(email);
 
-      // Si existe por email pero no tiene google_id → Vincular
-      if (usuario && !usuario.google_id) {
-        this.logger.log(`🔗 Usuario encontrado por email - vinculando con Google`);
-        usuario = await this.vincularGoogleAUsuarioExistente(usuario, googleId);
+        if (usuario && !usuario.google_id) {
+          this.logger.log(`🔗 Usuario encontrado por email - vinculando con Google`);
+          usuario = await this.vincularGoogleAUsuarioExistente(usuario, googleId);
+        }
       }
-    }
 
-    // 3️⃣ SI NO EXISTE → ERROR
-    if (!usuario) {
-      this.logger.warn(`🚫 Usuario no encontrado: ${email}`);
+      if (!usuario) {
+        this.logger.warn(`🚫 Usuario no encontrado: ${email}`);
+        throw new UnauthorizedException({
+          codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
+          mensaje: 'Usuario no registrado. Por favor regístrate primero.'
+        });
+      }
+
+      if (usuario.estado !== 'activo') {
+        this.logger.warn(`🚫 Usuario inactivo: ${email}`);
+        throw new UnauthorizedException({
+          codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
+          mensaje: 'Usuario inactivo'
+        });
+      }
+
+      const token = this.generarJWT(usuario as UsuarioPrincipal);
+
+      await this.sessionRepository.create({
+        usuario_principal_id: usuario.id,
+        jwt_token: token,
+        duracion_horas: 24
+      });
+
+      await this.userRepository.updateLastActivity(usuario.id);
+
+      this.logger.log(`✅ Login con Google exitoso: ${usuario.email}`);
+
+      const perfilCompleto = await this.obtenerPerfil(usuario.id);
+
+      return {
+        success: true,
+        message: 'Login con Google exitoso',
+        usuario: {
+          id: usuario.id,
+          email: usuario.email,
+          nombre: usuario.nombre,
+          fecha_registro: usuario.fecha_registro ?? new Date(),
+          estado: usuario.estado,
+          email_verificado: usuario.email_verificado ?? true
+        } as UsuarioPrincipal,
+        token,
+        cuentas_gmail: perfilCompleto.cuentas_gmail.map(cuenta => ({
+          ...cuenta,
+          alias_personalizado: cuenta.alias_personalizado || null,
+          ultima_sincronizacion: cuenta.ultima_sincronizacion || null
+        })),
+        sesiones_activas: perfilCompleto.sesiones_activas.map(sesion => ({
+          ...sesion,
+          ip_origen: sesion.ip_origen || null,
+          user_agent: sesion.user_agent || null
+        })),
+        estadisticas: perfilCompleto.estadisticas
+      };
+
+    } catch (error) {
+      this.logger.error(`❌ Error en login con Google:`, error);
+
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
       throw new UnauthorizedException({
-        codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
-        mensaje: 'Usuario no registrado. Por favor regístrate primero.'
+        codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
+        mensaje: 'Error interno en login con Google'
       });
     }
+  }
 
-    // 4️⃣ VERIFICAR ESTADO DEL USUARIO
-    if (usuario.estado !== 'activo') {
-      this.logger.warn(`🚫 Usuario inactivo: ${email}`);
-      throw new UnauthorizedException({
-        codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
-        mensaje: 'Usuario inactivo'
-      });
-    }
+  // ================================
+  // 🔧 HELPER PRIVADO - VINCULAR GOOGLE
+  // ================================
 
-    // 5️⃣ GENERAR JWT
-    const token = this.generarJWT(usuario as UsuarioPrincipal);
+  private async vincularGoogleAUsuarioExistente(
+    usuario: usuarios_principales,
+    googleId: string
+  ): Promise<any> {
+    try {
+      this.logger.log(`🔗 Vinculando Google a usuario ${usuario.id}`);
 
-    // 6️⃣ CREAR SESIÓN
-    await this.sessionRepository.create({
-      usuario_principal_id: usuario.id,
-      jwt_token: token,
-      duracion_horas: 24
-    });
+      await this.userRepository.addGoogleId(usuario.id, googleId);
+      await this.userRepository.markEmailAsVerified(usuario.id);
+      const usuarioActualizado = await this.userRepository.updateOAuthProvider(
+        usuario.id,
+        'both'
+      );
 
-    // 7️⃣ ACTUALIZAR ÚLTIMA ACTIVIDAD
-    await this.userRepository.updateLastActivity(usuario.id);
+      this.logger.log(`✅ Google vinculado exitosamente a usuario ${usuario.id}`);
 
-    this.logger.log(`✅ Login con Google exitoso: ${usuario.email}`);
+      return usuarioActualizado;
 
-    // 8️⃣ OBTENER PERFIL COMPLETO
-    const perfilCompleto = await this.obtenerPerfil(usuario.id);
-
-    // 9️⃣ RETORNAR RESPUESTA COMPLETA (igual que login tradicional)
-    return {
-      success: true,
-      message: 'Login con Google exitoso',
-      usuario: {
-        id: usuario.id,
-        email: usuario.email,
-        nombre: usuario.nombre,
-        fecha_registro: usuario.fecha_registro ?? new Date(),
-        estado: usuario.estado,
-        email_verificado: usuario.email_verificado ?? true // Google ya verificó
-      } as UsuarioPrincipal,
-      token,
-      cuentas_gmail: perfilCompleto.cuentas_gmail.map(cuenta => ({
-        ...cuenta,
-        alias_personalizado: cuenta.alias_personalizado || null,
-        ultima_sincronizacion: cuenta.ultima_sincronizacion || null
-      })),
-      sesiones_activas: perfilCompleto.sesiones_activas.map(sesion => ({
-        ...sesion,
-        ip_origen: sesion.ip_origen || null,
-        user_agent: sesion.user_agent || null
-      })),
-      estadisticas: perfilCompleto.estadisticas
-    };
-
-  } catch (error) {
-    this.logger.error(`❌ Error en login con Google:`, error);
-
-    if (error instanceof UnauthorizedException) {
+    } catch (error) {
+      this.logger.error(`❌ Error vinculando Google:`, error);
       throw error;
     }
-
-    throw new UnauthorizedException({
-      codigo: CodigosErrorAuth.GOOGLE_OAUTH_ERROR,
-      mensaje: 'Error interno en login con Google'
-    });
   }
-}
-
-// ================================
-// 🔧 HELPER PRIVADO - VINCULAR GOOGLE
-// ================================
-
-/**
- * 🔗 Vincular Google ID a usuario existente
- * 
- * ¿CUÁNDO SE USA? Cuando un usuario tiene cuenta con email/password
- * e intenta registrarse/loguearse con Google usando el mismo email
- * 
- * ¿QUÉ HACE?
- * 1. Agrega google_id al usuario
- * 2. Marca email como verificado (Google ya lo verificó)
- * 3. Cambia oauth_provider a 'both'
- * 4. Ahora el usuario puede entrar con ambos métodos
- */
-private async vincularGoogleAUsuarioExistente(
-  usuario: usuarios_principales,
-  googleId: string
-): Promise<any> {
-  try {
-    this.logger.log(`🔗 Vinculando Google a usuario ${usuario.id}`);
-
-    // 1️⃣ Agregar google_id
-    await this.userRepository.addGoogleId(usuario.id, googleId);
-
-    // 2️⃣ Marcar email como verificado (Google ya lo verificó) 
-    await this.userRepository.markEmailAsVerified(usuario.id);
-
-    // 3️⃣ Actualizar oauth_provider a 'both'
-    const usuarioActualizado = await this.userRepository.updateOAuthProvider(
-      usuario.id,
-      'both'
-    );
-
-    this.logger.log(`✅ Google vinculado exitosamente a usuario ${usuario.id}`);
-
-    return usuarioActualizado;
-
-  } catch (error) {
-    this.logger.error(`❌ Error vinculando Google:`, error);
-    throw error;
-  }
-}
-
 
   // ================================
   // 👤 OBTENER PERFIL COMPLETO
@@ -504,15 +448,46 @@ private async vincularGoogleAUsuarioExistente(
 
       // 2️⃣ Obtener cuentas Gmail asociadas
       const cuentasGmail = await this.gmailAccountRepository.findByUserId(usuarioId);
+      
+      // 2.1️⃣ Extraer IDs de cuentas para queries
+      const cuentasIds = cuentasGmail.map(c => c.id);
 
-      // 3️⃣ Obtener estadísticas del usuario
+      // 3️⃣ Obtener events_count y emails_count para cada cuenta
+      const cuentasConStats = await Promise.all(
+        cuentasGmail.map(async (cuenta) => {
+          const eventsCount = await this.eventStatsRepository.getEventCountByCuentaGmail(cuenta.id);
+          const emailsCount = await this.emailStatsRepository.getEmailCountByCuentaGmail(cuenta.id);
+          return {
+            ...cuenta,
+            events_count: eventsCount,
+            emails_count: emailsCount
+          };
+        })
+      );
+
+      // 4️⃣ Obtener estadísticas del usuario
       const cuentasGmailCount = await this.gmailAccountRepository.countActiveAccounts(usuarioId);
       const sesionesActivasCount = await this.sessionRepository.countActiveSessions(usuarioId);
 
-      // 4️⃣ Obtener estadísticas de eventos (por ahora hardcoded)
-      const eventStats = this.obtenerEstadisticasEventos(usuarioId);
+      // 5️⃣ Obtener estadísticas de eventos (pasar IDs de cuentas)
+      const eventStats = await this.obtenerEstadisticasEventos(cuentasIds);
 
-      // 5️⃣ Obtener sesiones activas
+      // 6️⃣ Obtener estadísticas de emails (pasar IDs de cuentas)
+      const emailStats = await this.emailStatsRepository.getEmailStatsByUser(cuentasIds);
+
+      // 7️⃣ Obtener cuenta más activa
+      const cuentaMasActiva = await this.emailStatsRepository.getMostActiveCuentaGmail(usuarioId);
+
+      // 8️⃣ Obtener última sincronización
+      const ultimaSync = cuentasGmail.length > 0 
+        ? cuentasGmail.reduce((latest, cuenta) => {
+            if (!cuenta.ultima_sincronizacion) return latest;
+            if (!latest) return cuenta.ultima_sincronizacion;
+            return cuenta.ultima_sincronizacion > latest ? cuenta.ultima_sincronizacion : latest;
+          }, null as Date | null)
+        : null;
+
+      // 9️⃣ Obtener sesiones activas
       const sesionesActivas = await this.sessionRepository.findActiveByUserId(usuarioId);
 
       this.logger.log(`✅ Perfil obtenido para usuario ${usuarioId}`);
@@ -527,14 +502,14 @@ private async vincularGoogleAUsuarioExistente(
           estado: usuario.estado ?? 'activo',
           email_verificado: usuario.email_verificado ?? false
         },
-        cuentas_gmail: cuentasGmail.map(cuenta => ({
+        cuentas_gmail: cuentasConStats.map(cuenta => ({
           ...cuenta,
           alias_personalizado: cuenta.alias_personalizado || undefined,
           fecha_conexion: cuenta.fecha_conexion || new Date(),
           ultima_sincronizacion: cuenta.ultima_sincronizacion || undefined,
           esta_activa: cuenta.esta_activa ?? true,
-          emails_count: 0,  // TODO: Implementar cuando tengamos EmailRepository
-          events_count: 0   // TODO: Implementar cuando tengamos EventRepository
+          emails_count: cuenta.emails_count,
+          events_count: cuenta.events_count
         })),
         sesiones_activas: sesionesActivas.map(sesion => ({
           id: sesion.id,
@@ -545,16 +520,16 @@ private async vincularGoogleAUsuarioExistente(
           esta_activa: sesion.esta_activa ?? true
         })),
         estadisticas: {
-        total_cuentas_gmail: cuentasGmailCount,      
-  cuentas_gmail_activas: cuentasGmailCount,      
-  sesiones_activas: sesionesActivasCount,
-  total_emails_sincronizados: 0,
-  emails_no_leidos: 0,                           
-  total_eventos_sincronizados: eventStats.total_eventos_sincronizados,
-  eventos_proximos: eventStats.eventos_proximos,
-  eventos_pasados: eventStats.eventos_pasados,
-  ultima_sincronizacion: null,
-  cuenta_mas_activa: { email_gmail: '', emails_count: 0 }   
+          total_cuentas_gmail: cuentasGmailCount,
+          cuentas_gmail_activas: cuentasGmailCount,
+          sesiones_activas: sesionesActivasCount,
+          total_emails_sincronizados: emailStats.total_emails_sincronizados,
+          emails_no_leidos: emailStats.emails_no_leidos,
+          total_eventos_sincronizados: eventStats.total_eventos_sincronizados,
+          eventos_proximos: eventStats.eventos_proximos,
+          eventos_pasados: eventStats.eventos_pasados,
+          ultima_sincronizacion: ultimaSync,
+          cuenta_mas_activa: cuentaMasActiva || { email_gmail: '', emails_count: 0 }
         }
       };
 
@@ -572,13 +547,9 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  /**
-   * 🔧 Obtener cuenta Gmail específica por ID
-   */
   async obtenerCuentaGmailPorId(usuarioId: string, cuentaId: string) {
     const cuenta = await this.gmailAccountRepository.findById(cuentaId);
     
-    // Verificar que la cuenta pertenezca al usuario
     if (!cuenta || cuenta.usuario_principal_id !== usuarioId) {
       throw new NotFoundException({
         codigo: CodigosErrorAuth.CUENTA_GMAIL_NO_ENCONTRADA,
@@ -586,7 +557,6 @@ private async vincularGoogleAUsuarioExistente(
       });
     }
     
-    // Convertir Date → string para el DTO
     return {
       id: cuenta.id,
       email_gmail: cuenta.email_gmail,
@@ -595,13 +565,10 @@ private async vincularGoogleAUsuarioExistente(
       fecha_conexion: cuenta.fecha_conexion?.toISOString() || new Date().toISOString(),
       ultima_sincronizacion: cuenta.ultima_sincronizacion?.toISOString(),
       esta_activa: cuenta.esta_activa ?? true,
-      emails_count: 0 // El orchestrator lo llenará con el count real
+      emails_count: 0
     };
   }
 
-  /**
-   * 🔧 ACTUALIZAR ALIAS DE CUENTA GMAIL
-   */
   async actualizarAliasCuentaGmail(
     usuarioId: string,
     cuentaId: string,
@@ -619,7 +586,6 @@ private async vincularGoogleAUsuarioExistente(
     try {
       this.logger.log(`🔄 Actualizando alias cuenta ${cuentaId} para usuario ${usuarioId}`);
 
-      // 1️⃣ Verificar que la cuenta existe y pertenece al usuario
       const cuentaExistente = await this.gmailAccountRepository.findById(cuentaId);
       if (!cuentaExistente || cuentaExistente.usuario_principal_id !== usuarioId) {
         throw new NotFoundException({
@@ -628,7 +594,6 @@ private async vincularGoogleAUsuarioExistente(
         });
       }
 
-      // 2️⃣ Actualizar el alias en la base de datos
       const cuentaActualizada = await this.gmailAccountRepository.updateAlias(
         cuentaId,
         nuevoAlias.trim()
@@ -661,9 +626,6 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  /**
-   * 🔧 GENERAR URL OAUTH CON STATE CODIFICADO (userId:service)
-   */
   generarUrlOAuth(userId: string, service: 'gmail' | 'calendar' = 'gmail'): string {
     try {
       this.logger.log(`🔵 Generando URL OAuth para usuario ${userId}, servicio: ${service}`);
@@ -672,7 +634,6 @@ private async vincularGoogleAUsuarioExistente(
       const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
       const redirectUri = this.configService.get<string>('GOOGLE_REDIRECT_URI') || 'http://localhost:3001/auth/google/callback';
       
-      // 🎯 SCOPES SEGÚN EL SERVICIO
       const scopes = this.getScopesForService(service);
       
       const params = new URLSearchParams({
@@ -682,7 +643,7 @@ private async vincularGoogleAUsuarioExistente(
         scope: scopes.join(' '),
         access_type: 'offline',
         prompt: 'consent',
-        state: `${userId}:${service}` // 🎯 CODIFICAR USER ID + SERVICE
+        state: `${userId}:${service}`
       });
 
       const authUrl = `${baseUrl}?${params.toString()}`;
@@ -696,16 +657,11 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  // ================================
-  // 🔐 MANEJAR CALLBACK DE GOOGLE OAUTH
-  // ================================
-
   async manejarCallbackGoogle(googleUser: GoogleOAuthUser, usuarioActualId: string): Promise<RespuestaConexionGmail> {
     try {
       this.logger.log(`🔵 Procesando callback Google para: ${googleUser.email}`);
       this.logger.log(`🎯 Usuario principal ID: ${usuarioActualId}`);
 
-      // ✅ VERIFICAR QUE TENEMOS EL USER ID
       if (!usuarioActualId) {
         throw new UnauthorizedException({
           codigo: CodigosErrorAuth.PERMISOS_INSUFICIENTES,
@@ -713,7 +669,6 @@ private async vincularGoogleAUsuarioExistente(
         });
       }
 
-      // Verificar que el usuario principal existe
       const usuarioPrincipal = await this.userRepository.findById(usuarioActualId);
       if (!usuarioPrincipal) {
         throw new NotFoundException({
@@ -722,7 +677,6 @@ private async vincularGoogleAUsuarioExistente(
         });
       }
 
-      // ✅ CONECTAR CUENTA GMAIL AL USUARIO PRINCIPAL
       const cuentaGmail = await this.gmailAccountRepository.create({
         usuario_principal_id: usuarioActualId,
         google_id: googleUser.googleId,
@@ -734,7 +688,6 @@ private async vincularGoogleAUsuarioExistente(
         scopes: []
       });
 
-      // 🎯 SINCRONIZACIÓN INICIAL DE EMAILS
       let emailsSincronizados = 0;
       try {
         this.logger.log(`📄 Iniciando sincronización automática para cuenta ${cuentaGmail.id}`);
@@ -785,7 +738,6 @@ private async vincularGoogleAUsuarioExistente(
     } catch (error) {
       this.logger.error(`❌ Error en callback Google:`, error);
       
-      // 🎯 MANEJAR ERROR ESPECÍFICO DE GMAIL YA CONECTADA
       if (error instanceof Error && error.message.includes('GMAIL_YA_CONECTADA')) {
         const regex = /La cuenta (.+) ya está conectada/;
         const emailMatch = regex.exec(error.message);
@@ -808,10 +760,6 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  // ================================
-  // 🚪 LOGOUT
-  // ================================
-
   async logout(token: string) {
     await this.sessionRepository.invalidate(token);
     return {
@@ -821,15 +769,9 @@ private async vincularGoogleAUsuarioExistente(
     };
   }
 
-  // ================================
-  // 🔧 DESCONECTAR CUENTA GMAIL
-  // ================================
-
   async desconectarCuentaGmail(usuarioId: string, cuentaId: string) {
-    // PRIMERO obtener datos de la cuenta
     const cuenta = await this.gmailAccountRepository.findById(cuentaId);
 
-    // Verificar si la cuenta existe y pertenece al usuario
     if (!cuenta || cuenta.usuario_principal_id !== usuarioId) {
       throw new NotFoundException({
         codigo: CodigosErrorAuth.USUARIO_NO_ENCONTRADO,
@@ -837,7 +779,6 @@ private async vincularGoogleAUsuarioExistente(
       });
     }
     
-    // DESPUÉS desconectarla
     await this.gmailAccountRepository.deactivate(cuentaId);
     
     return {
@@ -849,14 +790,10 @@ private async vincularGoogleAUsuarioExistente(
     };
   }
 
-  /**
-   * 🗑️ ELIMINAR USUARIO PRINCIPAL COMPLETAMENTE
-   */
   async deleteUser(userId: string) {
     try {
       this.logger.log(`🗑️ INICIANDO ELIMINACIÓN COMPLETA del usuario ${userId}`);
       
-      // 1. Verificar que el usuario existe y obtener datos
       const userData = await this.userRepository.findById(userId);
       
       if (!userData) {
@@ -868,21 +805,18 @@ private async vincularGoogleAUsuarioExistente(
 
       this.logger.log(`👤 Usuario encontrado: ${userData.email} (${userData.nombre})`);
 
-      // 2. Obtener las cuentas Gmail para logging y estadísticas
       const cuentasGmail = await this.gmailAccountRepository.findByUserId(userId);
       this.logger.log(`📧 Cuentas Gmail a eliminar: ${cuentasGmail.map(c => c.email_gmail).join(', ')}`);
 
-      // 3. Estadísticas simplificadas para el response
       const statsAntes = {
         cuentas_gmail: cuentasGmail.length,
-        emails_sincronizados: 0,  // TODO: Implementar cuando tengamos EmailRepository
-        eventos_sincronizados: 0, // TODO: Implementar cuando tengamos EventRepository
+        emails_sincronizados: 0,
+        eventos_sincronizados: 0,
         sesiones_activas: 0
       };
 
       this.logger.log(`📊 Data a eliminar: ${statsAntes.cuentas_gmail} cuentas Gmail`);
 
-      // 4. ELIMINAR USUARIO PRINCIPAL (cascada automática gracias a ON DELETE CASCADE en PostgreSQL)
       await this.userRepository.deactivate(userId);
       
       this.logger.log(`✅ USUARIO ELIMINADO COMPLETAMENTE: ${userData.email}`);
@@ -916,10 +850,6 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  // ================================
-  // 🔧 LISTAR CUENTAS GMAIL DE USUARIO
-  // ================================
-
   async listarCuentasGmailUsuario(usuarioId: string): Promise<Array<{
     id: string;
     email_gmail: string;
@@ -931,14 +861,13 @@ private async vincularGoogleAUsuarioExistente(
   }>> {
     const cuentas = await this.gmailAccountRepository.findByUserId(usuarioId);
     
-    // 🔧 CONVERTIR Date → string y manejar nulls
     return cuentas.map(cuenta => ({
       ...cuenta,
       alias_personalizado: cuenta.alias_personalizado || undefined,
       fecha_conexion: cuenta.fecha_conexion?.toISOString() || new Date().toISOString(),
       ultima_sincronizacion: cuenta.ultima_sincronizacion?.toISOString(),
       esta_activa: cuenta.esta_activa ?? true,
-      emails_count: 0  // TODO: Implementar cuando tengamos EmailRepository
+      emails_count: 0
     }));
   }
 
@@ -967,7 +896,6 @@ private async vincularGoogleAUsuarioExistente(
   private getScopesForService(service: 'gmail' | 'calendar'): string[] {
     this.logger.log(`🔍 Obteniendo scopes para servicio: ${service}`);
     
-    // ✅ TODOS LOS SERVICIOS = TODOS LOS SCOPES
     const allScopes = [
       'email',
       'profile',
@@ -984,21 +912,18 @@ private async vincularGoogleAUsuarioExistente(
     return allScopes;
   }
 
-  private obtenerEstadisticasEventos(usuarioId: string): {
+  private async obtenerEstadisticasEventos(cuentasGmailIds: string[]): Promise<{
     total_eventos_sincronizados: number;
     eventos_proximos: number;
     eventos_pasados: number;
-  } {
+  }> {
     try {
-      this.logger.log(`📊 Obteniendo estadísticas de eventos para usuario ${usuarioId}`);
+      this.logger.log(`📊 Obteniendo estadísticas de eventos para ${cuentasGmailIds.length} cuentas`);
 
-      // Por ahora retornamos valores por defecto
-      // TODO: Implementar cuando tengamos EventRepository
-      return {
-        total_eventos_sincronizados: 0,
-        eventos_proximos: 0,
-        eventos_pasados: 0
-      };
+      const stats = await this.eventStatsRepository.getEventStatsByUser(cuentasGmailIds);
+      
+      this.logger.log(`✅ Estadísticas obtenidas: ${JSON.stringify(stats)}`);
+      return stats;
 
     } catch (error) {
       this.logger.error(`❌ Error obteniendo estadísticas de eventos:`, error);
@@ -1010,15 +935,10 @@ private async vincularGoogleAUsuarioExistente(
     }
   }
 
-  // ================================
-  // 🔧 HEALTH CHECK
-  // ================================
-
   healthCheck() {
     try {
-      // Verificar que podemos conectarnos a los repositories
-      const usuariosCount = 0; // TODO: Implementar count en UserRepository
-      const cuentasGmailCount = 0; // TODO: Implementar en GmailAccountRepository
+      const usuariosCount = 0;
+      const cuentasGmailCount = 0;
 
       return {
         service: 'ms-yourdashboard-auth',
@@ -1056,7 +976,6 @@ private async vincularGoogleAUsuarioExistente(
   }
 
   obtenerEstadisticasServicio():any {
-    // TODO: Implementar estadísticas usando repositories
     return {
       total_usuarios: 0,
       usuarios_activos: 0,
@@ -1065,9 +984,6 @@ private async vincularGoogleAUsuarioExistente(
     };
   }
 
-  /**
-   * 🔍 BUSCAR USUARIO POR ID
-   */
   async buscarUsuarioPorId(usuarioId: string): Promise<UsuarioPrincipal | null> {
     try {
       this.logger.log(`🔍 Buscando usuario por ID: ${usuarioId}`);
