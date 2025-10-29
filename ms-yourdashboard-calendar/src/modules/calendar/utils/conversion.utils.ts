@@ -6,14 +6,16 @@ import {
   CreateEventRequestBody,
   UpdateEventRequestBody 
 } from '../interfaces/calendar-types';
-import { EventMetadataDB } from '../../../core/database/database.service';
+
+// ✅ IMPORT CORRECTO - desde types/
+import { EventMetadataDB } from '../../../core/database/types';
 
 // ================================
 // 🔄 CONVERSION UTILITIES
 // ================================
 
 /**
- * Convierte un evento de Google Calendar API a EventMetadata tipado
+ * Convierte un evento de Google Calendar API a CalendarEventMetadata tipado
  */
 export function convertAPIToEventMetadata(apiEvent: GoogleCalendarEvent): CalendarEventMetadata {
   return {
@@ -24,13 +26,16 @@ export function convertAPIToEventMetadata(apiEvent: GoogleCalendarEvent): Calend
     startTime: new Date(apiEvent.start?.dateTime || apiEvent.start?.date || ''),
     endTime: new Date(apiEvent.end?.dateTime || apiEvent.end?.date || ''),
     attendees: apiEvent.attendees?.map(a => a.email || '').filter(Boolean) || [],
-    isAllDay: !!apiEvent.start?.date, // Si tiene date en lugar de dateTime, es toddo el día
-    status: apiEvent.status || 'confirmed'
+    isAllDay: !!apiEvent.start?.date, // Si tiene date en lugar de dateTime, es todo el día
+    status: apiEvent.status || 'confirmed',
+    // ✅ Campos agregados para compatibilidad
+    cuenta_gmail_id: '', // Se debe setear desde el caller
+    google_event_id: apiEvent.id || ''
   };
 }
 
 /**
- * Convierte un evento de BD a EventMetadata tipado
+ * Convierte un evento de BD a CalendarEventMetadata tipado
  */
 export function convertDBToEventMetadata(dbEvent: EventMetadataDB): CalendarEventMetadata {
   return {
@@ -41,8 +46,11 @@ export function convertDBToEventMetadata(dbEvent: EventMetadataDB): CalendarEven
     startTime: dbEvent.start_time || new Date(),
     endTime: dbEvent.end_time || new Date(),
     attendees: dbEvent.attendees || [],
-    isAllDay: false, // Por ahora asumimos que no son de toddo el día
-    status: 'confirmed'
+    isAllDay: false, // Por ahora asumimos que no son de todo el día
+    status: 'confirmed',
+    // ✅ Campos agregados
+    cuenta_gmail_id: dbEvent.cuenta_gmail_id,
+    google_event_id: dbEvent.google_event_id
   };
 }
 
@@ -69,15 +77,10 @@ export function convertCreateEventToGoogleFormat(eventBody: CreateEventRequestBo
     googleEvent.description = eventBody.description.trim();
   }
 
-  // Asistentes (si existen y son válidos)
-  if (eventBody.attendees && Array.isArray(eventBody.attendees) && eventBody.attendees.length > 0) {
-    const validAttendees = eventBody.attendees
-      .filter((email: string) => email && email.trim() && email.includes('@'))
-      .map((email: string) => ({ email: email.trim() }));
-    
-    if (validAttendees.length > 0) {
-      googleEvent.attendees = validAttendees;
-    }
+  if (eventBody.attendees && eventBody.attendees.length > 0) {
+    googleEvent.attendees = eventBody.attendees
+      .filter(email => email && email.trim())
+      .map(email => ({ email: email.trim() }));
   }
 
   return googleEvent;
@@ -87,64 +90,57 @@ export function convertCreateEventToGoogleFormat(eventBody: CreateEventRequestBo
  * Convierte UpdateEventRequestBody a objeto para Google Calendar API
  */
 export function convertUpdateEventToGoogleFormat(eventBody: UpdateEventRequestBody): Partial<GoogleCalendarEvent> {
-  const updateData: Partial<GoogleCalendarEvent> = {};
-  
-  if (eventBody.summary) updateData.summary = eventBody.summary;
-  if (eventBody.location) updateData.location = eventBody.location;
-  if (eventBody.description) updateData.description = eventBody.description;
-  if (eventBody.startDateTime) updateData.start = { dateTime: eventBody.startDateTime };
-  if (eventBody.endDateTime) updateData.end = { dateTime: eventBody.endDateTime };
-  if (eventBody.attendees) updateData.attendees = eventBody.attendees.map(email => ({ email }));
+  const googleEvent: Partial<GoogleCalendarEvent> = {};
 
-  return updateData;
+  if (eventBody.summary !== undefined) {
+    googleEvent.summary = eventBody.summary;
+  }
+
+  if (eventBody.location !== undefined) {
+    googleEvent.location = eventBody.location?.trim() || undefined;
+  }
+
+  if (eventBody.description !== undefined) {
+    googleEvent.description = eventBody.description?.trim() || undefined;
+  }
+
+  if (eventBody.startDateTime) {
+    googleEvent.start = { dateTime: eventBody.startDateTime };
+  }
+
+  if (eventBody.endDateTime) {
+    googleEvent.end = { dateTime: eventBody.endDateTime };
+  }
+
+  if (eventBody.attendees !== undefined) {
+    googleEvent.attendees = eventBody.attendees
+      ?.filter(email => email && email.trim())
+      .map(email => ({ email: email.trim() })) || [];
+  }
+
+  return googleEvent;
 }
 
-// ================================
-// 🔍 VALIDATION UTILITIES  
-// ================================
+/**
+ * Obtiene el título de un evento de forma segura
+ */
+export function getSafeEventTitle(event: GoogleCalendarEvent | null | undefined): string {
+  if (!event) return 'Sin título';
+  return event.summary?.trim() || 'Sin título';
+}
 
 /**
- * Valida que un objeto tenga la estructura básica de un evento de Google Calendar
+ * Valida si un body de crear evento es válido
  */
-export function isValidGoogleCalendarEvent(obj: unknown): obj is GoogleCalendarEvent {
-  if (typeof obj !== 'object' || obj === null) {
+export function isValidCreateEventBody(body: CreateEventRequestBody): boolean {
+  if (!body.summary || !body.summary.trim()) return false;
+  if (!body.startDateTime || !body.endDateTime) return false;
+  
+  try {
+    const start = new Date(body.startDateTime);
+    const end = new Date(body.endDateTime);
+    return start < end;
+  } catch {
     return false;
   }
-  
-  const event = obj as Record<string, unknown>;
-  return typeof event.id === 'string' || typeof event.summary === 'string';
-}
-
-/**
- * Valida que un request body tenga los campos requeridos para crear evento
- */
-export function isValidCreateEventBody(body: unknown): body is CreateEventRequestBody {
-  if (typeof body !== 'object' || body === null) {
-    return false;
-  }
-  
-  const eventBody = body as Record<string, unknown>;
-  return typeof eventBody.summary === 'string' && 
-         typeof eventBody.startDateTime === 'string' && 
-         typeof eventBody.endDateTime === 'string';
-}
-
-/**
- * Extrae email seguro de un aclRuleId
- */
-export function extractEmailFromAclRuleId(aclRuleId: string): string {
-  return aclRuleId.startsWith('user:') ? aclRuleId.substring(5) : aclRuleId;
-}
-
-/**
- * Obtiene título seguro de un evento para logging
- */
-export function getSafeEventTitle(eventBody: unknown): string {
-  if (typeof eventBody === 'object' && eventBody !== null) {
-    const body = eventBody as Record<string, unknown>;
-    if (typeof body.summary === 'string') {
-      return body.summary;
-    }
-  }
-  return 'Evento sin título';
 }

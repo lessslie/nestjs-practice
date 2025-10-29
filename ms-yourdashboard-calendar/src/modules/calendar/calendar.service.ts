@@ -264,10 +264,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { google, calendar_v3 } from 'googleapis';
 import { ConfigService } from '@nestjs/config';
 import { 
-  DatabaseService, 
   EventMetadataDB, 
-  EventSearchFilters 
-} from '../../core/database/database.service';
+  EventSearchFilters,
+  SyncResult
+} from '../../core/database/types';
 
 import { CreateEventDto } from './dto/create-event.dto';
 import { CreateEventRequestBody, GoogleCalendarEvent, safeGetErrorCode, safeGetErrorMessage, ShareCalendarResponse, UnshareCalendarResponse, UpdateEventRequestBody } from './interfaces/calendar-types';
@@ -794,7 +794,7 @@ if (timeMax) {
   ): Promise<GoogleCalendarEvent> {
     try {
       // Obtener título seguro para logging
-      const eventTitle = getSafeEventTitle(eventBody);
+      const eventTitle = eventBody.summary || 'Sin título';
       this.logger.log(`➕ Creando evento "${eventTitle}" para cuenta Gmail ${cuentaGmailId}`);
 
       // Validación tipada
@@ -860,7 +860,7 @@ if (timeMax) {
       this.logger.error(`❌ Error creando evento:`, {
         message: errorMessage,
         code: errorCode,
-        eventSummary: getSafeEventTitle(eventBody)
+       eventSummary: eventBody.summary || 'Sin título'
       });
       
       // 🎯 MANEJO ESPECÍFICO DE ERRORES

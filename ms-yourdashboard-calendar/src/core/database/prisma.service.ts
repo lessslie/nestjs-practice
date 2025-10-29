@@ -1,17 +1,10 @@
-// ms-yourdashboard-email/src/database/prisma.service.ts
+// ms-yourdashboard-calendar/src/database/prisma.service.ts
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '../../../generated/prisma';
 
 /**
  * 🎯 PrismaService
  * 
- * Servicio base que extiende PrismaClient y maneja el ciclo de vida
- * de la conexión a la base de datos.
- * 
- * ✅ Cumple especificación del jefe:
- * - Prisma como query client tipado (NO como ORM)
- * - Conexión única por microservicio
- * - Manejo automático de conexión/desconexión
  */
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
