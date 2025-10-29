@@ -176,9 +176,10 @@ export class CalendarService {
         if (dbResult.total > 0) {
           this.logger.log(`💾 FALLBACK exitoso: ${dbResult.events.length} eventos desde BD`);
           
-          const events = dbResult.events
-  .filter(dbEvent => dbEvent.cuenta_gmail_id !== null) 
-  .map(dbEvent => convertDBToEventMetadata(dbEvent as EventMetadataDB));
+      const events = dbResult.events
+  .filter(dbEvent => dbEvent.cuenta_gmail_id !== null)
+  .map(dbEvent => convertDBToEventMetadata(dbEvent as unknown as EventMetadataDB));
+
           const totalPages = Math.ceil(dbResult.total / limit);
           
           return {
@@ -321,9 +322,9 @@ export class CalendarService {
         };
 
       const searchResult = await this.eventSearchRepo.search(filters);
-const events = searchResult.events //  Acceder a .events primero
-  .filter(dbEvent => dbEvent.cuenta_gmail_id !== null) //  Filtrar nulls
-  .map(dbEvent => convertDBToEventMetadata(dbEvent as EventMetadataDB));
+const events = searchResult.events
+  .filter((dbEvent): dbEvent is EventMetadataDB => dbEvent.cuenta_gmail_id !== null)
+  .map(dbEvent => convertDBToEventMetadata(dbEvent));
 
 // Y TAMBIÉN necesitas usar searchResult.total para el total count
 const startIndex = (page - 1) * limit;
